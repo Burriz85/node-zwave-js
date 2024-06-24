@@ -5,11 +5,11 @@ import {
 } from "@zwave-js/cc";
 import { CommandClasses } from "@zwave-js/core";
 import {
-	createMockZWaveRequestFrame,
 	MockZWaveFrameType,
-	MockZWaveRequestFrame,
+	type MockZWaveRequestFrame,
+	createMockZWaveRequestFrame,
 } from "@zwave-js/testing";
-import path from "path";
+import path from "node:path";
 import { integrationTest } from "../integrationTestSuite";
 
 integrationTest("Response to Z-Wave Plus Info Get", {
@@ -26,7 +26,7 @@ integrationTest("Response to Z-Wave Plus Info Get", {
 		],
 	},
 
-	testBody: async (driver, node, mockController, mockNode) => {
+	testBody: async (t, driver, node, mockController, mockNode) => {
 		const zwpRequest = new ZWavePlusCCGet(mockController.host, {
 			nodeId: mockNode.id,
 		});
@@ -40,16 +40,13 @@ integrationTest("Response to Z-Wave Plus Info Get", {
 				msg,
 			): msg is MockZWaveRequestFrame & {
 				payload: ZWavePlusCCReport;
-			} =>
-				msg.type === MockZWaveFrameType.Request &&
-				msg.payload instanceof ZWavePlusCCReport,
+			} => msg.type === MockZWaveFrameType.Request
+				&& msg.payload instanceof ZWavePlusCCReport,
 		);
 
 		// Z-Wave+ v2 specifications, section 3.1
-		expect(response.zwavePlusVersion).toBe(2);
+		t.is(response.zwavePlusVersion, 2);
 		// Z-Wave+ v2 specifications, section 4.1
-		expect(response.roleType).toBe(
-			ZWavePlusRoleType.CentralStaticController,
-		);
+		t.is(response.roleType, ZWavePlusRoleType.CentralStaticController);
 	},
 });

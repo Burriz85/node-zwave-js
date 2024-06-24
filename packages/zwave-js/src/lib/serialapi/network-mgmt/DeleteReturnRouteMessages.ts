@@ -1,22 +1,23 @@
 import {
-	MessageOrCCLogEntry,
+	type MessageOrCCLogEntry,
 	MessagePriority,
 	TransmitStatus,
 	ZWaveError,
 	ZWaveErrorCodes,
+	encodeNodeID,
 } from "@zwave-js/core";
 import type { ZWaveHost } from "@zwave-js/host";
 import type { INodeQuery, SuccessIndicator } from "@zwave-js/serial";
 import {
+	FunctionType,
+	Message,
+	type MessageBaseOptions,
+	type MessageDeserializationOptions,
+	type MessageOptions,
+	MessageType,
 	expectedCallback,
 	expectedResponse,
-	FunctionType,
 	gotDeserializationOptions,
-	Message,
-	MessageBaseOptions,
-	MessageDeserializationOptions,
-	MessageOptions,
-	MessageType,
 	messageTypes,
 	priority,
 } from "@zwave-js/serial";
@@ -27,8 +28,8 @@ import { getEnumMemberName } from "@zwave-js/shared";
 export class DeleteReturnRouteRequestBase extends Message {
 	public constructor(host: ZWaveHost, options: MessageOptions) {
 		if (
-			gotDeserializationOptions(options) &&
-			(new.target as any) !== DeleteReturnRouteRequestTransmitReport
+			gotDeserializationOptions(options)
+			&& (new.target as any) !== DeleteReturnRouteRequestTransmitReport
 		) {
 			return new DeleteReturnRouteRequestTransmitReport(host, options);
 		}
@@ -42,8 +43,7 @@ export interface DeleteReturnRouteRequestOptions extends MessageBaseOptions {
 
 @expectedResponse(FunctionType.DeleteReturnRoute)
 @expectedCallback(FunctionType.DeleteReturnRoute)
-export class DeleteReturnRouteRequest
-	extends DeleteReturnRouteRequestBase
+export class DeleteReturnRouteRequest extends DeleteReturnRouteRequestBase
 	implements INodeQuery
 {
 	public constructor(
@@ -66,15 +66,15 @@ export class DeleteReturnRouteRequest
 	public nodeId: number;
 
 	public serialize(): Buffer {
-		this.payload = Buffer.from([this.nodeId, this.callbackId]);
+		const nodeId = encodeNodeID(this.nodeId, this.host.nodeIdType);
+		this.payload = Buffer.concat([nodeId, Buffer.from([this.callbackId])]);
 
 		return super.serialize();
 	}
 }
 
 @messageTypes(MessageType.Response, FunctionType.DeleteReturnRoute)
-export class DeleteReturnRouteResponse
-	extends Message
+export class DeleteReturnRouteResponse extends Message
 	implements SuccessIndicator
 {
 	public constructor(
@@ -110,17 +110,17 @@ export class DeleteReturnRouteRequestTransmitReport
 		super(host, options);
 
 		this.callbackId = this.payload[0];
-		this._transmitStatus = this.payload[1];
-	}
-
-	private _transmitStatus: TransmitStatus;
-	public get transmitStatus(): TransmitStatus {
-		return this._transmitStatus;
+		this.transmitStatus = this.payload[1];
 	}
 
 	public isOK(): boolean {
-		return this._transmitStatus === TransmitStatus.OK;
+		// The other statuses are technically "not OK", but they are caused by
+		// not being able to contact the node. We don't want the node to be marked
+		// as dead because of that
+		return this.transmitStatus !== TransmitStatus.NoAck;
 	}
+
+	public readonly transmitStatus: TransmitStatus;
 
 	public toLogEntry(): MessageOrCCLogEntry {
 		return {

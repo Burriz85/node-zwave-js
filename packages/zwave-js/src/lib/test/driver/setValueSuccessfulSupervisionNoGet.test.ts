@@ -7,11 +7,12 @@ import {
 } from "@zwave-js/cc";
 import { CommandClasses, SupervisionStatus } from "@zwave-js/core";
 import {
-	createMockZWaveRequestFrame,
-	MockNodeBehavior,
+	type MockNodeBehavior,
 	MockZWaveFrameType,
+	createMockZWaveRequestFrame,
 } from "@zwave-js/testing";
 import { wait } from "alcalzone-shared/async";
+import sinon from "sinon";
 import { integrationTest } from "../integrationTestSuite";
 
 integrationTest(
@@ -35,8 +36,8 @@ integrationTest(
 			const respondToSupervisionGet: MockNodeBehavior = {
 				async onControllerFrame(controller, self, frame) {
 					if (
-						frame.type === MockZWaveFrameType.Request &&
-						frame.payload instanceof SupervisionCCGet
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload instanceof SupervisionCCGet
 					) {
 						const cc = new SupervisionCCReport(self.host, {
 							nodeId: controller.host.ownNodeId,
@@ -56,8 +57,8 @@ integrationTest(
 			};
 			mockNode.defineBehavior(respondToSupervisionGet);
 		},
-		testBody: async (driver, node, mockController, mockNode) => {
-			const onValueChange = jest.fn();
+		testBody: async (t, driver, node, mockController, mockNode) => {
+			const onValueChange = sinon.spy();
 			node.on("value added", onValueChange);
 			node.on("value updated", onValueChange);
 
@@ -67,9 +68,9 @@ integrationTest(
 
 			mockNode.assertReceivedControllerFrame(
 				(frame) =>
-					frame.type === MockZWaveFrameType.Request &&
-					frame.payload instanceof SupervisionCCGet &&
-					frame.payload.encapsulated instanceof BinarySwitchCCSet,
+					frame.type === MockZWaveFrameType.Request
+					&& frame.payload instanceof SupervisionCCGet
+					&& frame.payload.encapsulated instanceof BinarySwitchCCSet,
 				{
 					errorMessage:
 						"Node should have received a supervised BinarySwitchCCSet",
@@ -77,8 +78,8 @@ integrationTest(
 			);
 			mockNode.assertReceivedControllerFrame(
 				(frame) =>
-					frame.type === MockZWaveFrameType.Request &&
-					frame.payload instanceof BinarySwitchCCGet,
+					frame.type === MockZWaveFrameType.Request
+					&& frame.payload instanceof BinarySwitchCCGet,
 				{
 					noMatch: true,
 					errorMessage:
@@ -89,19 +90,21 @@ integrationTest(
 			const currentValue = node.getValue(
 				BinarySwitchCCValues.currentValue.id,
 			);
-			expect(currentValue).toBeTrue();
+			t.true(currentValue);
 
 			// And make sure the value event handlers are called
-			expect(onValueChange).toHaveBeenCalledWith(
-				expect.anything(),
-				expect.objectContaining({
+			sinon.assert.calledWith(
+				onValueChange,
+				sinon.match.any,
+				sinon.match({
 					property: "currentValue",
 					newValue: true,
 				}),
 			);
-			expect(onValueChange).toHaveBeenCalledWith(
-				expect.anything(),
-				expect.objectContaining({
+			sinon.assert.calledWith(
+				onValueChange,
+				sinon.match.any,
+				sinon.match({
 					property: "targetValue",
 					newValue: true,
 				}),

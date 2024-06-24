@@ -1,7 +1,5 @@
-import { CommandClasses } from "@zwave-js/core/safe";
-import { JSONObject, num2hex } from "@zwave-js/shared/safe";
-import { distinct } from "alcalzone-shared/arrays";
-import { isArray, isObject } from "alcalzone-shared/typeguards";
+import { type JSONObject, num2hex } from "@zwave-js/shared/safe";
+import { isObject } from "alcalzone-shared/typeguards";
 import { hexKeyRegexNDigits, throwInvalidConfig } from "./utils_safe";
 
 export type BasicDeviceClassMap = ReadonlyMap<number, string>;
@@ -17,7 +15,7 @@ export function getDefaultSpecificDeviceClass(
 	generic: GenericDeviceClass,
 	key: number,
 ): SpecificDeviceClass {
-	if (key === 0)
+	if (key === 0) {
 		return new SpecificDeviceClass(
 			0x00,
 			{
@@ -25,6 +23,7 @@ export function getDefaultSpecificDeviceClass(
 			},
 			generic,
 		);
+	}
 	return new SpecificDeviceClass(
 		key,
 		{
@@ -46,9 +45,11 @@ export class GenericDeviceClass {
 		if (typeof definition.label !== "string") {
 			throwInvalidConfig(
 				"device classes",
-				`The label for generic device class ${num2hex(
-					key,
-				)} is not a string!`,
+				`The label for generic device class ${
+					num2hex(
+						key,
+					)
+				} is not a string!`,
 			);
 		}
 		this.label = definition.label;
@@ -57,9 +58,11 @@ export class GenericDeviceClass {
 			if (typeof definition.zwavePlusDeviceType !== "string") {
 				throwInvalidConfig(
 					"device classes",
-					`The zwavePlusDeviceType for generic device class ${num2hex(
-						key,
-					)} is not a string!`,
+					`The zwavePlusDeviceType for generic device class ${
+						num2hex(
+							key,
+						)
+					} is not a string!`,
 				);
 			} else {
 				this.zwavePlusDeviceType = definition.zwavePlusDeviceType;
@@ -70,91 +73,49 @@ export class GenericDeviceClass {
 			if (typeof definition.requiresSecurity !== "boolean") {
 				throwInvalidConfig(
 					"device classes",
-					`The requiresSecurity property for generic device class ${num2hex(
-						key,
-					)} is not a boolean!`,
+					`The requiresSecurity property for generic device class ${
+						num2hex(
+							key,
+						)
+					} is not a boolean!`,
 				);
 			} else {
 				this.requiresSecurity = definition.requiresSecurity;
 			}
 		}
 
-		if (definition.supportedCCs != undefined) {
-			if (
-				!isArray(definition.supportedCCs) ||
-				!definition.supportedCCs.every(
-					(cc: any) => typeof cc === "string",
-				)
-			) {
+		if (definition.maySupportBasicCC != undefined) {
+			if (definition.maySupportBasicCC !== false) {
 				throwInvalidConfig(
 					"device classes",
-					`supportedCCs in device class ${this.label} (${num2hex(
-						this.key,
-					)}) is not a string array!`,
+					`maySupportBasicCC in device class ${this.label} (${
+						num2hex(this.key)
+					}) must be false or omitted (= true)!`,
 				);
+			} else {
+				this.maySupportBasicCC = false;
 			}
-			const supportedCCs: CommandClasses[] = [];
-			for (const ccName of definition.supportedCCs) {
-				if (!(ccName in CommandClasses)) {
-					throwInvalidConfig(
-						"device classes",
-						`Found unknown CC "${ccName}" in supportedCCs of device class ${
-							this.label
-						} (${num2hex(this.key)})!`,
-					);
-				}
-				supportedCCs.push((CommandClasses as any)[ccName]);
-			}
-			this.supportedCCs = supportedCCs;
 		} else {
-			this.supportedCCs = [];
-		}
-
-		if (definition.controlledCCs != undefined) {
-			if (
-				!isArray(definition.controlledCCs) ||
-				!definition.controlledCCs.every(
-					(cc: any) => typeof cc === "string",
-				)
-			) {
-				throwInvalidConfig(
-					"device classes",
-					`controlledCCs in device class ${this.label} (${num2hex(
-						this.key,
-					)}) is not a string array!`,
-				);
-			}
-			const controlledCCs: CommandClasses[] = [];
-			for (const ccName of definition.controlledCCs) {
-				if (!(ccName in CommandClasses)) {
-					throwInvalidConfig(
-						"device classes",
-						`Found unknown CC "${ccName}" in controlledCCs of device class ${
-							this.label
-						} (${num2hex(this.key)})!`,
-					);
-				}
-				controlledCCs.push((CommandClasses as any)[ccName]);
-			}
-			this.controlledCCs = controlledCCs;
-		} else {
-			this.controlledCCs = [];
+			this.maySupportBasicCC = true;
 		}
 
 		const specific = new Map<number, SpecificDeviceClass>();
 		if (isObject(definition.specific)) {
-			for (const [specificKey, specificDefinition] of Object.entries(
-				definition.specific,
-			)) {
-				if (!hexKeyRegexNDigits.test(specificKey))
+			for (
+				const [specificKey, specificDefinition] of Object.entries(
+					definition.specific,
+				)
+			) {
+				if (!hexKeyRegexNDigits.test(specificKey)) {
 					throwInvalidConfig(
 						"device classes",
-						`found invalid key "${specificKey}" in device class ${
-							this.label
-						} (${num2hex(
-							this.key,
-						)}). Device classes must have lowercase hexadecimal IDs.`,
+						`found invalid key "${specificKey}" in device class ${this.label} (${
+							num2hex(
+								this.key,
+							)
+						}). Device classes must have lowercase hexadecimal IDs.`,
 					);
+				}
 				const specificKeyNum = parseInt(specificKey.slice(2), 16);
 				specific.set(
 					specificKeyNum,
@@ -174,8 +135,7 @@ export class GenericDeviceClass {
 	/** @internal */
 	public readonly zwavePlusDeviceType?: string;
 	public readonly requiresSecurity?: boolean;
-	public readonly supportedCCs: readonly CommandClasses[];
-	public readonly controlledCCs: readonly CommandClasses[];
+	public readonly maySupportBasicCC: boolean;
 	public readonly specific: ReadonlyMap<number, SpecificDeviceClass>;
 }
 
@@ -190,9 +150,11 @@ export class SpecificDeviceClass {
 		if (typeof definition.label !== "string") {
 			throwInvalidConfig(
 				"device classes",
-				`The label for device class ${generic.label} -> ${num2hex(
-					key,
-				)} is not a string!`,
+				`The label for device class ${generic.label} -> ${
+					num2hex(
+						key,
+					)
+				} is not a string!`,
 			);
 		}
 		this.label = definition.label;
@@ -201,9 +163,9 @@ export class SpecificDeviceClass {
 			if (typeof definition.zwavePlusDeviceType !== "string") {
 				throwInvalidConfig(
 					"device classes",
-					`The zwavePlusDeviceType for device class ${
-						generic.label
-					} -> ${num2hex(key)} is not a string!`,
+					`The zwavePlusDeviceType for device class ${generic.label} -> ${
+						num2hex(key)
+					} is not a string!`,
 				);
 			} else {
 				this.zwavePlusDeviceType = definition.zwavePlusDeviceType;
@@ -216,9 +178,9 @@ export class SpecificDeviceClass {
 			if (typeof definition.requiresSecurity !== "boolean") {
 				throwInvalidConfig(
 					"device classes",
-					`The requiresSecurity property for device class ${
-						generic.label
-					} -> ${num2hex(key)} is not a string!`,
+					`The requiresSecurity property for device class ${generic.label} -> ${
+						num2hex(key)
+					} is not a string!`,
 				);
 			} else {
 				this.requiresSecurity = definition.requiresSecurity;
@@ -227,81 +189,25 @@ export class SpecificDeviceClass {
 			this.requiresSecurity = generic.requiresSecurity;
 		}
 
-		if (definition.supportedCCs != undefined) {
-			if (
-				!isArray(definition.supportedCCs) ||
-				!definition.supportedCCs.every(
-					(cc: any) => typeof cc === "string",
-				)
-			) {
+		if (definition.maySupportBasicCC != undefined) {
+			if (definition.maySupportBasicCC !== false) {
 				throwInvalidConfig(
 					"device classes",
-					`supportedCCs in device class ${generic.label} -> ${
-						this.label
-					} (${num2hex(this.key)}) is not a string array!`,
+					`maySupportBasicCC in device class ${generic.label} -> ${this.label} (${
+						num2hex(this.key)
+					}) must be false or omitted (= true)!`,
 				);
+			} else {
+				this.maySupportBasicCC = false;
 			}
-			const supportedCCs: CommandClasses[] = [];
-			for (const ccName of definition.supportedCCs) {
-				if (!(ccName in CommandClasses)) {
-					throwInvalidConfig(
-						"device classes",
-						`Found unknown CC "${ccName}" in supportedCCs of device class ${
-							generic.label
-						} -> ${this.label} (${num2hex(this.key)})!`,
-					);
-				}
-				supportedCCs.push((CommandClasses as any)[ccName]);
-			}
-			this.supportedCCs = supportedCCs;
 		} else {
-			this.supportedCCs = [];
+			this.maySupportBasicCC = true;
 		}
-		this.supportedCCs = distinct([
-			...generic.supportedCCs,
-			...this.supportedCCs,
-		]);
-
-		if (definition.controlledCCs != undefined) {
-			if (
-				!isArray(definition.controlledCCs) ||
-				!definition.controlledCCs.every(
-					(cc: any) => typeof cc === "string",
-				)
-			) {
-				throwInvalidConfig(
-					"device classes",
-					`controlledCCs in device class ${generic.label} -> ${
-						this.label
-					} (${num2hex(this.key)}) is not a string array!`,
-				);
-			}
-			const controlledCCs: CommandClasses[] = [];
-			for (const ccName of definition.controlledCCs) {
-				if (!(ccName in CommandClasses)) {
-					throwInvalidConfig(
-						"device classes",
-						`Found unknown CC "${ccName}" in controlledCCs of device class ${
-							generic.label
-						} -> ${this.label} (${num2hex(this.key)})!`,
-					);
-				}
-				controlledCCs.push((CommandClasses as any)[ccName]);
-			}
-			this.controlledCCs = controlledCCs;
-		} else {
-			this.controlledCCs = [];
-		}
-		this.controlledCCs = distinct([
-			...generic.controlledCCs,
-			...this.controlledCCs,
-		]);
 	}
 
 	public readonly key: number;
 	public readonly label: string;
 	public readonly zwavePlusDeviceType?: string;
 	public readonly requiresSecurity?: boolean;
-	public readonly supportedCCs: readonly CommandClasses[];
-	public readonly controlledCCs: readonly CommandClasses[];
+	public readonly maySupportBasicCC: boolean;
 }

@@ -1,13 +1,14 @@
 import {
-	createSimpleReflectionDecorator,
-	MessageOrCCLogEntry,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	MessageRecord,
-	parseBitMask,
+	type MessageRecord,
+	NodeIDType,
 	RFRegion,
-	validatePayload,
 	ZWaveError,
 	ZWaveErrorCodes,
+	createSimpleReflectionDecorator,
+	parseBitMask,
+	validatePayload,
 } from "@zwave-js/core";
 import type { ZWaveHost } from "@zwave-js/host";
 import type {
@@ -15,31 +16,36 @@ import type {
 	SuccessIndicator,
 } from "@zwave-js/serial";
 import {
-	expectedResponse,
 	FunctionType,
-	gotDeserializationOptions,
 	Message,
-	MessageBaseOptions,
-	MessageDeserializationOptions,
-	MessageOptions,
+	type MessageBaseOptions,
+	type MessageDeserializationOptions,
+	type MessageOptions,
 	MessageType,
+	expectedResponse,
+	gotDeserializationOptions,
 	messageTypes,
 	priority,
 } from "@zwave-js/serial";
 import { getEnumMemberName } from "@zwave-js/shared";
-import { NodeIDType } from "../_Types";
+import { sdkVersionLt } from "../../controller/utils";
 
 export enum SerialAPISetupCommand {
 	Unsupported = 0x00,
 	GetSupportedCommands = 0x01,
 	SetTxStatusReport = 0x02,
+	SetLongRangeMaximumTxPower = 0x03,
 	SetPowerlevel = 0x04,
+	GetLongRangeMaximumTxPower = 0x05,
 	GetPowerlevel = 0x08,
 	GetMaximumPayloadSize = 0x10,
-	GetLRMaximumPayloadSize = 0x11,
 	GetRFRegion = 0x20,
 	SetRFRegion = 0x40,
 	SetNodeIDType = 0x80,
+
+	GetLongRangeMaximumPayloadSize = 0x11,
+	SetPowerlevel16Bit = 0x12,
+	GetPowerlevel16Bit = 0x13,
 }
 
 // We need to define the decorators for Requests and Responses separately
@@ -131,7 +137,7 @@ export class SerialAPISetupResponse extends Message {
 			return new CommandConstructor(host, options);
 		}
 
-		this.payload = this.payload.slice(1);
+		this.payload = this.payload.subarray(1);
 	}
 
 	public command: SerialAPISetupCommand;
@@ -151,7 +157,9 @@ export class SerialAPISetupResponse extends Message {
 }
 
 @subCommandResponse(0x00)
-export class SerialAPISetup_CommandUnsupportedResponse extends SerialAPISetupResponse {
+export class SerialAPISetup_CommandUnsupportedResponse
+	extends SerialAPISetupResponse
+{
 	public constructor(
 		host: ZWaveHost,
 		options: MessageDeserializationOptions,
@@ -177,7 +185,9 @@ export class SerialAPISetup_CommandUnsupportedResponse extends SerialAPISetupRes
 // =============================================================================
 
 @subCommandRequest(SerialAPISetupCommand.GetSupportedCommands)
-export class SerialAPISetup_GetSupportedCommandsRequest extends SerialAPISetupRequest {
+export class SerialAPISetup_GetSupportedCommandsRequest
+	extends SerialAPISetupRequest
+{
 	public constructor(host: ZWaveHost, options?: MessageOptions) {
 		super(host, options);
 		this.command = SerialAPISetupCommand.GetSupportedCommands;
@@ -185,7 +195,9 @@ export class SerialAPISetup_GetSupportedCommandsRequest extends SerialAPISetupRe
 }
 
 @subCommandResponse(SerialAPISetupCommand.GetSupportedCommands)
-export class SerialAPISetup_GetSupportedCommandsResponse extends SerialAPISetupResponse {
+export class SerialAPISetup_GetSupportedCommandsResponse
+	extends SerialAPISetupResponse
+{
 	public constructor(
 		host: ZWaveHost,
 		options: MessageDeserializationOptions,
@@ -197,27 +209,29 @@ export class SerialAPISetup_GetSupportedCommandsResponse extends SerialAPISetupR
 			// This module supports the extended bitmask to report the supported serial API setup commands
 			// Parse it as a bitmask
 			this.supportedCommands = parseBitMask(
-				this.payload.slice(1),
+				this.payload.subarray(1),
 				// According to the Host API specification, the first bit (bit 0) should be GetSupportedCommands
-				// However, at least in Z-Wave SDK 7.15, the entire bitmask is shifted by 1 bit and
+				// However, in Z-Wave SDK < 7.19.1, the entire bitmask is shifted by 1 bit and
 				// GetSupportedCommands is encoded in the second bit (bit 1)
-
-				// TODO: When this is fixed, make the start value dependent on the SDK version
-				SerialAPISetupCommand.Unsupported,
+				sdkVersionLt(options.sdkVersion, "7.19.1")
+					? SerialAPISetupCommand.Unsupported
+					: SerialAPISetupCommand.GetSupportedCommands,
 			);
 		} else {
 			// This module only uses the single byte power-of-2 bitmask. Decode it manually
 			this.supportedCommands = [];
-			for (const cmd of [
-				SerialAPISetupCommand.GetSupportedCommands,
-				SerialAPISetupCommand.SetTxStatusReport,
-				SerialAPISetupCommand.SetPowerlevel,
-				SerialAPISetupCommand.GetPowerlevel,
-				SerialAPISetupCommand.GetMaximumPayloadSize,
-				SerialAPISetupCommand.GetRFRegion,
-				SerialAPISetupCommand.SetRFRegion,
-				SerialAPISetupCommand.SetNodeIDType,
-			] as const) {
+			for (
+				const cmd of [
+					SerialAPISetupCommand.GetSupportedCommands,
+					SerialAPISetupCommand.SetTxStatusReport,
+					SerialAPISetupCommand.SetPowerlevel,
+					SerialAPISetupCommand.GetPowerlevel,
+					SerialAPISetupCommand.GetMaximumPayloadSize,
+					SerialAPISetupCommand.GetRFRegion,
+					SerialAPISetupCommand.SetRFRegion,
+					SerialAPISetupCommand.SetNodeIDType,
+				] as const
+			) {
 				if (!!(this.payload[0] & cmd)) this.supportedCommands.push(cmd);
 			}
 		}
@@ -240,12 +254,15 @@ export class SerialAPISetup_GetSupportedCommandsResponse extends SerialAPISetupR
 // =============================================================================
 
 export interface SerialAPISetup_SetTXStatusReportOptions
-	extends MessageBaseOptions {
+	extends MessageBaseOptions
+{
 	enabled: boolean;
 }
 
 @subCommandRequest(SerialAPISetupCommand.SetTxStatusReport)
-export class SerialAPISetup_SetTXStatusReportRequest extends SerialAPISetupRequest {
+export class SerialAPISetup_SetTXStatusReportRequest
+	extends SerialAPISetupRequest
+{
 	public constructor(
 		host: ZWaveHost,
 		options:
@@ -313,7 +330,8 @@ export class SerialAPISetup_SetTXStatusReportResponse
 // =============================================================================
 
 export interface SerialAPISetup_SetNodeIDTypeOptions
-	extends MessageBaseOptions {
+	extends MessageBaseOptions
+{
 	nodeIdType: NodeIDType;
 }
 
@@ -349,16 +367,16 @@ export class SerialAPISetup_SetNodeIDTypeRequest extends SerialAPISetupRequest {
 	public toLogEntry(): MessageOrCCLogEntry {
 		const ret = { ...super.toLogEntry() };
 		const message = ret.message!;
-		message["node ID type"] =
-			this.nodeIdType === NodeIDType.Short ? "8 bit" : "16 bit";
+		message["node ID type"] = this.nodeIdType === NodeIDType.Short
+			? "8 bit"
+			: "16 bit";
 		delete message.payload;
 		return ret;
 	}
 }
 
 @subCommandResponse(SerialAPISetupCommand.SetNodeIDType)
-export class SerialAPISetup_SetNodeIDTypeResponse
-	extends SerialAPISetupResponse
+export class SerialAPISetup_SetNodeIDTypeResponse extends SerialAPISetupResponse
 	implements SuccessIndicator
 {
 	public constructor(
@@ -383,6 +401,7 @@ export class SerialAPISetup_SetNodeIDTypeResponse
 		return ret;
 	}
 }
+
 // =============================================================================
 
 @subCommandRequest(SerialAPISetupCommand.GetRFRegion)
@@ -458,8 +477,7 @@ export class SerialAPISetup_SetRFRegionRequest extends SerialAPISetupRequest {
 }
 
 @subCommandResponse(SerialAPISetupCommand.SetRFRegion)
-export class SerialAPISetup_SetRFRegionResponse
-	extends SerialAPISetupResponse
+export class SerialAPISetup_SetRFRegionResponse extends SerialAPISetupResponse
 	implements SuccessIndicator
 {
 	public constructor(
@@ -496,7 +514,9 @@ export class SerialAPISetup_GetPowerlevelRequest extends SerialAPISetupRequest {
 }
 
 @subCommandResponse(SerialAPISetupCommand.GetPowerlevel)
-export class SerialAPISetup_GetPowerlevelResponse extends SerialAPISetupResponse {
+export class SerialAPISetup_GetPowerlevelResponse
+	extends SerialAPISetupResponse
+{
 	public constructor(
 		host: ZWaveHost,
 		options: MessageDeserializationOptions,
@@ -529,7 +549,8 @@ export class SerialAPISetup_GetPowerlevelResponse extends SerialAPISetupResponse
 // =============================================================================
 
 export interface SerialAPISetup_SetPowerlevelOptions
-	extends MessageBaseOptions {
+	extends MessageBaseOptions
+{
 	powerlevel: number;
 	measured0dBm: number;
 }
@@ -594,7 +615,279 @@ export class SerialAPISetup_SetPowerlevelRequest extends SerialAPISetupRequest {
 }
 
 @subCommandResponse(SerialAPISetupCommand.SetPowerlevel)
-export class SerialAPISetup_SetPowerlevelResponse
+export class SerialAPISetup_SetPowerlevelResponse extends SerialAPISetupResponse
+	implements SuccessIndicator
+{
+	public constructor(
+		host: ZWaveHost,
+		options: MessageDeserializationOptions,
+	) {
+		super(host, options);
+		this.success = this.payload[0] !== 0;
+	}
+
+	isOK(): boolean {
+		return this.success;
+	}
+
+	public readonly success: boolean;
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message = ret.message!;
+		message.success = this.success;
+		delete message.payload;
+		return ret;
+	}
+}
+
+// =============================================================================
+
+@subCommandRequest(SerialAPISetupCommand.GetPowerlevel16Bit)
+export class SerialAPISetup_GetPowerlevel16BitRequest
+	extends SerialAPISetupRequest
+{
+	public constructor(host: ZWaveHost, options?: MessageOptions) {
+		super(host, options);
+		this.command = SerialAPISetupCommand.GetPowerlevel16Bit;
+	}
+}
+
+@subCommandResponse(SerialAPISetupCommand.GetPowerlevel16Bit)
+export class SerialAPISetup_GetPowerlevel16BitResponse
+	extends SerialAPISetupResponse
+{
+	public constructor(
+		host: ZWaveHost,
+		options: MessageDeserializationOptions,
+	) {
+		super(host, options);
+		validatePayload(this.payload.length >= 4);
+		// The values are in 0.1 dBm, signed
+		this.powerlevel = this.payload.readInt16BE(0) / 10;
+		this.measured0dBm = this.payload.readInt16BE(2) / 10;
+	}
+
+	/** The configured normal powerlevel in dBm */
+	public readonly powerlevel: number;
+	/** The measured output power in dBm for a normal output powerlevel of 0 */
+	public readonly measured0dBm: number;
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message: MessageRecord = {
+			...ret.message!,
+			"normal powerlevel": `${this.powerlevel.toFixed(1)} dBm`,
+			"output power at 0 dBm": `${this.measured0dBm.toFixed(1)} dBm`,
+		};
+		delete message.payload;
+		ret.message = message;
+		return ret;
+	}
+}
+
+// =============================================================================
+
+export interface SerialAPISetup_SetPowerlevel16BitOptions
+	extends MessageBaseOptions
+{
+	powerlevel: number;
+	measured0dBm: number;
+}
+
+@subCommandRequest(SerialAPISetupCommand.SetPowerlevel16Bit)
+export class SerialAPISetup_SetPowerlevel16BitRequest
+	extends SerialAPISetupRequest
+{
+	public constructor(
+		host: ZWaveHost,
+		options:
+			| MessageDeserializationOptions
+			| SerialAPISetup_SetPowerlevel16BitOptions,
+	) {
+		super(host, options);
+		this.command = SerialAPISetupCommand.SetPowerlevel16Bit;
+
+		if (gotDeserializationOptions(options)) {
+			throw new ZWaveError(
+				`${this.constructor.name}: deserialization not implemented`,
+				ZWaveErrorCodes.Deserialization_NotImplemented,
+			);
+		} else {
+			if (options.powerlevel < -10 || options.powerlevel > 20) {
+				throw new ZWaveError(
+					`The normal powerlevel must be between -10.0 and +20.0 dBm`,
+					ZWaveErrorCodes.Argument_Invalid,
+				);
+			}
+			if (options.measured0dBm < -10 || options.measured0dBm > 10) {
+				throw new ZWaveError(
+					`The measured output power at 0 dBm must be between -10.0 and +10.0 dBm`,
+					ZWaveErrorCodes.Argument_Invalid,
+				);
+			}
+			this.powerlevel = options.powerlevel;
+			this.measured0dBm = options.measured0dBm;
+		}
+	}
+
+	public powerlevel: number;
+	public measured0dBm: number;
+
+	public serialize(): Buffer {
+		this.payload = Buffer.allocUnsafe(4);
+		// The values are in 0.1 dBm
+		this.payload.writeInt16BE(Math.round(this.powerlevel * 10), 0);
+		this.payload.writeInt16BE(Math.round(this.measured0dBm * 10), 2);
+
+		return super.serialize();
+	}
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message: MessageRecord = {
+			...ret.message!,
+			"normal powerlevel": `${this.powerlevel.toFixed(1)} dBm`,
+			"output power at 0 dBm": `${this.measured0dBm.toFixed(1)} dBm`,
+		};
+		delete message.payload;
+		ret.message = message;
+		return ret;
+	}
+}
+
+@subCommandResponse(SerialAPISetupCommand.SetPowerlevel16Bit)
+export class SerialAPISetup_SetPowerlevel16BitResponse
+	extends SerialAPISetupResponse
+	implements SuccessIndicator
+{
+	public constructor(
+		host: ZWaveHost,
+		options: MessageDeserializationOptions,
+	) {
+		super(host, options);
+		this.success = this.payload[0] !== 0;
+	}
+
+	isOK(): boolean {
+		return this.success;
+	}
+
+	public readonly success: boolean;
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message = ret.message!;
+		message.success = this.success;
+		delete message.payload;
+		return ret;
+	}
+}
+
+// =============================================================================
+
+@subCommandRequest(SerialAPISetupCommand.GetLongRangeMaximumTxPower)
+export class SerialAPISetup_GetLongRangeMaximumTxPowerRequest
+	extends SerialAPISetupRequest
+{
+	public constructor(host: ZWaveHost, options?: MessageOptions) {
+		super(host, options);
+		this.command = SerialAPISetupCommand.GetLongRangeMaximumTxPower;
+	}
+}
+
+@subCommandResponse(SerialAPISetupCommand.GetLongRangeMaximumTxPower)
+export class SerialAPISetup_GetLongRangeMaximumTxPowerResponse
+	extends SerialAPISetupResponse
+{
+	public constructor(
+		host: ZWaveHost,
+		options: MessageDeserializationOptions,
+	) {
+		super(host, options);
+		validatePayload(this.payload.length >= 2);
+		// The values are in 0.1 dBm, signed
+		this.limit = this.payload.readInt16BE(0) / 10;
+	}
+
+	/** The maximum LR TX power in dBm */
+	public readonly limit: number;
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message: MessageRecord = {
+			...ret.message!,
+			"max. TX power (LR)": `${this.limit.toFixed(1)} dBm`,
+		};
+		delete message.payload;
+		ret.message = message;
+		return ret;
+	}
+}
+
+// =============================================================================
+
+export interface SerialAPISetup_SetLongRangeMaximumTxPowerOptions
+	extends MessageBaseOptions
+{
+	limit: number;
+}
+
+@subCommandRequest(SerialAPISetupCommand.SetLongRangeMaximumTxPower)
+export class SerialAPISetup_SetLongRangeMaximumTxPowerRequest
+	extends SerialAPISetupRequest
+{
+	public constructor(
+		host: ZWaveHost,
+		options:
+			| MessageDeserializationOptions
+			| SerialAPISetup_SetLongRangeMaximumTxPowerOptions,
+	) {
+		super(host, options);
+		this.command = SerialAPISetupCommand.SetLongRangeMaximumTxPower;
+
+		if (gotDeserializationOptions(options)) {
+			throw new ZWaveError(
+				`${this.constructor.name}: deserialization not implemented`,
+				ZWaveErrorCodes.Deserialization_NotImplemented,
+			);
+		} else {
+			if (options.limit < -10 || options.limit > 20) {
+				throw new ZWaveError(
+					`The maximum LR TX power must be between -10.0 and +20.0 dBm`,
+					ZWaveErrorCodes.Argument_Invalid,
+				);
+			}
+
+			this.limit = options.limit;
+		}
+	}
+
+	/** The maximum LR TX power in dBm */
+	public limit: number;
+
+	public serialize(): Buffer {
+		this.payload = Buffer.allocUnsafe(2);
+		// The values are in 0.1 dBm, signed
+		this.payload.writeInt16BE(Math.round(this.limit * 10), 0);
+
+		return super.serialize();
+	}
+
+	public toLogEntry(): MessageOrCCLogEntry {
+		const ret = { ...super.toLogEntry() };
+		const message: MessageRecord = {
+			...ret.message!,
+			"max. TX power (LR)": `${this.limit.toFixed(1)} dBm`,
+		};
+		delete message.payload;
+		ret.message = message;
+		return ret;
+	}
+}
+
+@subCommandResponse(SerialAPISetupCommand.SetLongRangeMaximumTxPower)
+export class SerialAPISetup_SetLongRangeMaximumTxPowerResponse
 	extends SerialAPISetupResponse
 	implements SuccessIndicator
 {
@@ -624,7 +917,9 @@ export class SerialAPISetup_SetPowerlevelResponse
 // =============================================================================
 
 @subCommandRequest(SerialAPISetupCommand.GetMaximumPayloadSize)
-export class SerialAPISetup_GetMaximumPayloadSizeRequest extends SerialAPISetupRequest {
+export class SerialAPISetup_GetMaximumPayloadSizeRequest
+	extends SerialAPISetupRequest
+{
 	public constructor(host: ZWaveHost, options?: MessageOptions) {
 		super(host, options);
 		this.command = SerialAPISetupCommand.GetMaximumPayloadSize;
@@ -632,7 +927,9 @@ export class SerialAPISetup_GetMaximumPayloadSizeRequest extends SerialAPISetupR
 }
 
 @subCommandResponse(SerialAPISetupCommand.GetMaximumPayloadSize)
-export class SerialAPISetup_GetMaximumPayloadSizeResponse extends SerialAPISetupResponse {
+export class SerialAPISetup_GetMaximumPayloadSizeResponse
+	extends SerialAPISetupResponse
+{
 	public constructor(
 		host: ZWaveHost,
 		options: MessageDeserializationOptions,
@@ -654,16 +951,20 @@ export class SerialAPISetup_GetMaximumPayloadSizeResponse extends SerialAPISetup
 
 // =============================================================================
 
-@subCommandRequest(SerialAPISetupCommand.GetLRMaximumPayloadSize)
-export class SerialAPISetup_GetLRMaximumPayloadSizeRequest extends SerialAPISetupRequest {
+@subCommandRequest(SerialAPISetupCommand.GetLongRangeMaximumPayloadSize)
+export class SerialAPISetup_GetLongRangeMaximumPayloadSizeRequest
+	extends SerialAPISetupRequest
+{
 	public constructor(host: ZWaveHost, options?: MessageOptions) {
 		super(host, options);
-		this.command = SerialAPISetupCommand.GetLRMaximumPayloadSize;
+		this.command = SerialAPISetupCommand.GetLongRangeMaximumPayloadSize;
 	}
 }
 
-@subCommandResponse(SerialAPISetupCommand.GetLRMaximumPayloadSize)
-export class SerialAPISetup_GetLRMaximumPayloadSizeResponse extends SerialAPISetupResponse {
+@subCommandResponse(SerialAPISetupCommand.GetLongRangeMaximumPayloadSize)
+export class SerialAPISetup_GetLongRangeMaximumPayloadSizeResponse
+	extends SerialAPISetupResponse
+{
 	public constructor(
 		host: ZWaveHost,
 		options: MessageDeserializationOptions,

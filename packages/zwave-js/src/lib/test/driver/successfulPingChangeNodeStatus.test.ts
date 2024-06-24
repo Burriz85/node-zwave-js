@@ -1,65 +1,77 @@
-import { FunctionType, MessageHeaders, MockSerialPort } from "@zwave-js/serial";
-import { getEnumMemberName, ThrowingMap } from "@zwave-js/shared";
+import { MessageHeaders } from "@zwave-js/serial";
+import type { MockSerialPort } from "@zwave-js/serial/mock";
+import {
+	type ThrowingMap,
+	createThrowingMap,
+	getEnumMemberName,
+} from "@zwave-js/shared";
 import { wait } from "alcalzone-shared/async";
+import ava, { type TestFn } from "ava";
 import type { Driver } from "../../driver/Driver";
 import { ZWaveNode } from "../../node/Node";
 import { NodeStatus } from "../../node/_Types";
 import { createAndStartDriver } from "../utils";
+import { isFunctionSupported_NoBridge } from "./fixtures";
 
-// Test mock for isFunctionSupported to control which commands are getting used
-function isFunctionSupported(fn: FunctionType): boolean {
-	switch (fn) {
-		case FunctionType.SendDataBridge:
-		case FunctionType.SendDataMulticastBridge:
-			return false;
-	}
-	return true;
+interface TestContext {
+	driver: Driver;
+	serialport: MockSerialPort;
 }
 
-describe("When a ping succeeds, the node should be marked awake/alive", () => {
-	let driver: Driver;
-	let serialport: MockSerialPort;
-	process.env.LOGLEVEL = "debug";
+const test = ava as TestFn<TestContext>;
 
-	beforeEach(async () => {
-		({ driver, serialport } = await createAndStartDriver());
+test.beforeEach(async (t) => {
+	t.timeout(5000);
 
-		driver["_controller"] = {
-			ownNodeId: 1,
-			isFunctionSupported,
-			nodes: new Map(),
-			incrementStatistics: () => {},
-			removeAllListeners: () => {},
-		} as any;
-	});
+	const { driver, serialport } = await createAndStartDriver();
 
-	afterEach(async () => {
-		await driver.destroy();
-		driver.removeAllListeners();
-	});
+	driver["_controller"] = {
+		ownNodeId: 1,
+		isFunctionSupported: isFunctionSupported_NoBridge,
+		nodes: createThrowingMap(),
+		incrementStatistics: () => {},
+		removeAllListeners: () => {},
+	} as any;
 
-	for (const initialStatus of [
+	t.context = { driver, serialport };
+});
+
+test.afterEach.always(async (t) => {
+	const { driver } = t.context;
+	await driver.destroy();
+	driver.removeAllListeners();
+});
+
+process.env.LOGLEVEL = "debug";
+
+for (
+	const initialStatus of [
 		NodeStatus.Unknown,
 		NodeStatus.Asleep,
 		NodeStatus.Dead,
-	]) {
-		for (const canSleep of [true, false]) {
-			// Exclude tests that make no sense
-			if (
-				(initialStatus === NodeStatus.Asleep && !canSleep) ||
-				(canSleep && initialStatus === NodeStatus.Dead)
-			) {
-				continue;
-			}
+	]
+) {
+	for (const canSleep of [true, false]) {
+		// Exclude tests that make no sense
+		if (
+			(initialStatus === NodeStatus.Asleep && !canSleep)
+			|| (canSleep && initialStatus === NodeStatus.Dead)
+		) {
+			continue;
+		}
 
-			const expectedStatus = canSleep
-				? NodeStatus.Awake
-				: NodeStatus.Alive;
+		const expectedStatus = canSleep ? NodeStatus.Awake : NodeStatus.Alive;
 
-			it(`Can sleep: ${canSleep}, initial status: ${getEnumMemberName(
-				NodeStatus,
-				initialStatus,
-			)}`, async () => {
+		test.serial(
+			`When a ping succeeds, the node should be marked awake/alive (Can sleep: ${canSleep}, initial status: ${
+				getEnumMemberName(
+					NodeStatus,
+					initialStatus,
+				)
+			})`,
+			async (t) => {
+				const { driver, serialport } = t.context;
+
 				// https://github.com/zwave-js/node-zwave-js/issues/1364#issuecomment-760006591
 
 				const node4 = new ZWaveNode(4, driver);
@@ -85,7 +97,7 @@ describe("When a ping succeeds, the node should be marked awake/alive", () => {
 				} else if (initialStatus === NodeStatus.Dead) {
 					node4.markAsDead();
 				}
-				expect(node4.status).toBe(initialStatus);
+				t.is(node4.status, initialStatus);
 
 				const ACK = Buffer.from([MessageHeaders.ACK]);
 
@@ -95,7 +107,8 @@ describe("When a ping succeeds, the node should be marked awake/alive", () => {
 				//   │ transmit options: 0x25
 				//   │ callback id:      1
 				//   └─[NoOperationCC]
-				expect(serialport.lastWrite).toEqual(
+				t.deepEqual(
+					serialport.lastWrite,
 					Buffer.from("010800130401002501c5", "hex"),
 				);
 				await wait(10);
@@ -107,7 +120,7 @@ describe("When a ping succeeds, the node should be marked awake/alive", () => {
 				//     was sent: true
 				serialport.receiveData(Buffer.from("0104011301e8", "hex"));
 				// » [ACK]
-				expect(serialport.lastWrite).toEqual(ACK);
+				t.deepEqual(serialport.lastWrite, ACK);
 
 				await wait(10);
 
@@ -120,14 +133,14 @@ describe("When a ping succeeds, the node should be marked awake/alive", () => {
 						"hex",
 					),
 				);
-				expect(serialport.lastWrite).toEqual(ACK);
+				t.deepEqual(serialport.lastWrite, ACK);
 
 				await wait(10);
 
 				await pingPromise;
 
-				expect(node4.status).toBe(expectedStatus);
-			}, 5000);
-		}
+				t.is(node4.status, expectedStatus);
+			},
+		);
 	}
-});
+}

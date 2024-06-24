@@ -1,22 +1,23 @@
 import {
-	MessageOrCCLogEntry,
+	type MessageOrCCLogEntry,
 	MessagePriority,
 	TransmitStatus,
 	ZWaveError,
 	ZWaveErrorCodes,
+	encodeNodeID,
 } from "@zwave-js/core";
 import type { ZWaveHost } from "@zwave-js/host";
 import type { INodeQuery, SuccessIndicator } from "@zwave-js/serial";
 import {
+	FunctionType,
+	Message,
+	type MessageBaseOptions,
+	type MessageDeserializationOptions,
+	type MessageOptions,
+	MessageType,
 	expectedCallback,
 	expectedResponse,
-	FunctionType,
 	gotDeserializationOptions,
-	Message,
-	MessageBaseOptions,
-	MessageDeserializationOptions,
-	MessageOptions,
-	MessageType,
 	messageTypes,
 	priority,
 } from "@zwave-js/serial";
@@ -27,8 +28,8 @@ import { getEnumMemberName } from "@zwave-js/shared";
 export class AssignReturnRouteRequestBase extends Message {
 	public constructor(host: ZWaveHost, options: MessageOptions) {
 		if (
-			gotDeserializationOptions(options) &&
-			(new.target as any) !== AssignReturnRouteRequestTransmitReport
+			gotDeserializationOptions(options)
+			&& (new.target as any) !== AssignReturnRouteRequestTransmitReport
 		) {
 			return new AssignReturnRouteRequestTransmitReport(host, options);
 		}
@@ -43,8 +44,7 @@ export interface AssignReturnRouteRequestOptions extends MessageBaseOptions {
 
 @expectedResponse(FunctionType.AssignReturnRoute)
 @expectedCallback(FunctionType.AssignReturnRoute)
-export class AssignReturnRouteRequest
-	extends AssignReturnRouteRequestBase
+export class AssignReturnRouteRequest extends AssignReturnRouteRequestBase
 	implements INodeQuery
 {
 	public constructor(
@@ -75,10 +75,16 @@ export class AssignReturnRouteRequest
 	public destinationNodeId: number;
 
 	public serialize(): Buffer {
-		this.payload = Buffer.from([
-			this.nodeId,
+		const nodeId = encodeNodeID(this.nodeId, this.host.nodeIdType);
+		const destinationNodeId = encodeNodeID(
 			this.destinationNodeId,
-			this.callbackId,
+			this.host.nodeIdType,
+		);
+
+		this.payload = Buffer.concat([
+			nodeId,
+			destinationNodeId,
+			Buffer.from([this.callbackId]),
 		]);
 
 		return super.serialize();
@@ -86,8 +92,7 @@ export class AssignReturnRouteRequest
 }
 
 @messageTypes(MessageType.Response, FunctionType.AssignReturnRoute)
-export class AssignReturnRouteResponse
-	extends Message
+export class AssignReturnRouteResponse extends Message
 	implements SuccessIndicator
 {
 	public constructor(
@@ -123,17 +128,17 @@ export class AssignReturnRouteRequestTransmitReport
 		super(host, options);
 
 		this.callbackId = this.payload[0];
-		this._transmitStatus = this.payload[1];
+		this.transmitStatus = this.payload[1];
 	}
 
 	public isOK(): boolean {
-		return this._transmitStatus === TransmitStatus.OK;
+		// The other statuses are technically "not OK", but they are caused by
+		// not being able to contact the node. We don't want the node to be marked
+		// as dead because of that
+		return this.transmitStatus !== TransmitStatus.NoAck;
 	}
 
-	private _transmitStatus: TransmitStatus;
-	public get transmitStatus(): TransmitStatus {
-		return this._transmitStatus;
-	}
+	public readonly transmitStatus: TransmitStatus;
 
 	public toLogEntry(): MessageOrCCLogEntry {
 		return {

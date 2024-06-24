@@ -4,21 +4,23 @@ import type {
 	EntryControlEventTypes,
 	FirmwareUpdateProgress,
 	FirmwareUpdateResult,
-	FirmwareUpdateStatus,
 	MultilevelSwitchCommand,
 	Powerlevel,
 	PowerlevelTestStatus,
+	Weekday,
 } from "@zwave-js/cc/safe";
 import type {
 	CommandClasses,
 	MetadataUpdatedArgs,
 	NodeStatus,
+	TranslatedValueID,
 	ValueAddedArgs,
-	ValueID,
 	ValueNotificationArgs,
 	ValueRemovedArgs,
 	ValueUpdatedArgs,
-} from "@zwave-js/core";
+} from "@zwave-js/core/safe";
+import { type AllOrNone } from "@zwave-js/shared";
+import { type Endpoint } from "./Endpoint";
 import type { ZWaveNode } from "./Node";
 import type { RouteStatistics } from "./NodeStatistics";
 
@@ -30,35 +32,38 @@ export {
 	Powerlevel,
 	PowerlevelTestStatus,
 } from "@zwave-js/cc/safe";
-export { InterviewStage, NodeStatus } from "@zwave-js/core/safe";
+export {
+	ControllerStatus,
+	InterviewStage,
+	NodeStatus,
+} from "@zwave-js/core/safe";
 
-export interface TranslatedValueID extends ValueID {
-	commandClassName: string;
-	propertyName?: string;
-	propertyKeyName?: string;
-}
-
-export type NodeInterviewFailedEventArgs = {
-	errorMessage: string;
-	isFinal: boolean;
-} & (
-	| {
+export type NodeInterviewFailedEventArgs =
+	& {
+		errorMessage: string;
+		isFinal: boolean;
+	}
+	& (
+		| {
 			attempt: number;
 			maxAttempts: number;
-	  }
-	// eslint-disable-next-line @typescript-eslint/ban-types
-	| {}
-);
+		}
+		// eslint-disable-next-line @typescript-eslint/ban-types
+		| {}
+	);
 
 export type ZWaveNodeValueAddedArgs = ValueAddedArgs & TranslatedValueID;
-export type ZWaveNodeValueUpdatedArgs = Omit<ValueUpdatedArgs, "source"> &
-	TranslatedValueID;
+export type ZWaveNodeValueUpdatedArgs =
+	& Omit<ValueUpdatedArgs, "source">
+	& TranslatedValueID;
 export type ZWaveNodeValueRemovedArgs = ValueRemovedArgs & TranslatedValueID;
-export type ZWaveNodeValueNotificationArgs = ValueNotificationArgs &
-	TranslatedValueID;
+export type ZWaveNodeValueNotificationArgs =
+	& ValueNotificationArgs
+	& TranslatedValueID;
 
-export type ZWaveNodeMetadataUpdatedArgs = MetadataUpdatedArgs &
-	TranslatedValueID;
+export type ZWaveNodeMetadataUpdatedArgs =
+	& MetadataUpdatedArgs
+	& TranslatedValueID;
 
 export type ZWaveNodeValueAddedCallback = (
 	node: ZWaveNode,
@@ -86,14 +91,10 @@ export type ZWaveInterviewFailedCallback = (
 ) => void;
 export type ZWaveNodeFirmwareUpdateProgressCallback = (
 	node: ZWaveNode,
-	__DEPRECATED__sentFragments: number,
-	__DEPRECATED__totalFragments: number,
 	progress: FirmwareUpdateProgress,
 ) => void;
 export type ZWaveNodeFirmwareUpdateFinishedCallback = (
 	node: ZWaveNode,
-	__DEPRECATED__status: FirmwareUpdateStatus,
-	__DEPRECATED__waitTime: number | undefined,
 	result: FirmwareUpdateResult,
 ) => void;
 export type ZWaveNodeStatusChangeCallback = (
@@ -119,8 +120,8 @@ export interface ZWaveNotificationCallbackArgs_MultilevelSwitchCC {
  * Parameter types for the MultilevelSwitch CC specific version of ZWaveNotificationCallback
  */
 export type ZWaveNotificationCallbackParams_MultilevelSwitchCC = [
-	node: ZWaveNode,
-	ccId: typeof CommandClasses["Multilevel Switch"],
+	endpoint: Endpoint,
+	ccId: (typeof CommandClasses)["Multilevel Switch"],
 	args: ZWaveNotificationCallbackArgs_MultilevelSwitchCC,
 ];
 
@@ -141,7 +142,7 @@ export interface ZWaveNotificationCallbackArgs_NotificationCC {
  * Parameter types for the Notification CC specific version of ZWaveNotificationCallback
  */
 export type ZWaveNotificationCallbackParams_NotificationCC = [
-	node: ZWaveNode,
+	endpoint: Endpoint,
 	ccId: CommandClasses.Notification,
 	args: ZWaveNotificationCallbackArgs_NotificationCC,
 ];
@@ -159,7 +160,7 @@ export interface ZWaveNotificationCallbackArgs_PowerlevelCC {
  * Parameter types for the Powerlevel CC specific version of ZWaveNotificationCallback
  */
 export type ZWaveNotificationCallbackParams_PowerlevelCC = [
-	node: ZWaveNode,
+	endpoint: Endpoint,
 	ccId: CommandClasses.Powerlevel,
 	args: ZWaveNotificationCallbackArgs_PowerlevelCC,
 ];
@@ -178,8 +179,8 @@ export interface ZWaveNotificationCallbackArgs_EntryControlCC {
  * Parameter types for the Entry Control CC specific version of ZWaveNotificationCallback
  */
 export type ZWaveNotificationCallbackParams_EntryControlCC = [
-	node: ZWaveNode,
-	ccId: typeof CommandClasses["Entry Control"],
+	endpoint: Endpoint,
+	ccId: (typeof CommandClasses)["Entry Control"],
 	args: ZWaveNotificationCallbackArgs_EntryControlCC,
 ];
 
@@ -215,6 +216,26 @@ export interface ZWaveNodeEventCallbacks extends ZWaveNodeValueEventCallbacks {
 }
 
 export type ZWaveNodeEvents = Extract<keyof ZWaveNodeEventCallbacks, string>;
+
+export const zWaveNodeEvents = [
+	"notification",
+	"interview failed",
+	"firmware update progress",
+	"firmware update finished",
+	"wake up",
+	"sleep",
+	"dead",
+	"alive",
+	"interview completed",
+	"ready",
+	"interview stage completed",
+	"interview started",
+	"value added",
+	"value updated",
+	"value removed",
+	"metadata updated",
+	"value notification",
+] as const satisfies readonly ZWaveNodeEvents[];
 
 /** Represents the result of one health check round of a node's lifeline */
 export interface LifelineHealthCheckResult {
@@ -367,3 +388,22 @@ export interface LifelineRoutes {
 	/** The next to last working route from the controller to this node. */
 	nlwr?: RouteStatistics;
 }
+
+export type DateAndTime =
+	& AllOrNone<{
+		hour: number;
+		minute: number;
+	}>
+	& (
+		| { weekday?: Weekday; second?: undefined }
+		| { weekday?: undefined; second?: number }
+	)
+	& AllOrNone<{
+		year: number;
+		month: number;
+		day: number;
+	}>
+	& AllOrNone<{
+		dstOffset: number;
+		standardOffset: number;
+	}>;

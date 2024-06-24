@@ -4,7 +4,8 @@ import type {
 	ControllerLogger,
 	ICommandClass,
 	IZWaveNode,
-	Maybe,
+	MaybeNotKnown,
+	NodeIDType,
 	SecurityClass,
 	SecurityManager,
 	SecurityManager2,
@@ -23,17 +24,32 @@ export interface ZWaveHost {
 	/** The Home ID of the current network */
 	homeId: number;
 
+	/** How many bytes a node ID occupies in serial API commands */
+	readonly nodeIdType?: NodeIDType;
+
 	/** Management of Security S0 keys and nonces */
 	securityManager: SecurityManager | undefined;
-	/** Management of Security S2 keys and nonces */
+	/** Management of Security S2 keys and nonces (Z-Wave Classic) */
 	securityManager2: SecurityManager2 | undefined;
+	/** Management of Security S2 keys and nonces (Z-Wave Long Range) */
+	securityManagerLR: SecurityManager2 | undefined;
 
 	/**
 	 * Retrieves the maximum version of a command class that can be used to communicate with a node.
 	 * Returns 1 if the node claims that it does not support a CC.
 	 * Throws if the CC is not implemented in this library yet.
 	 */
-	getSafeCCVersionForNode(
+	getSafeCCVersion(
+		cc: CommandClasses,
+		nodeId: number,
+		endpointIndex?: number,
+	): number;
+
+	/**
+	 * Retrieves the maximum version of a command class the given node/endpoint has reported support for.
+	 * Returns 0 when the CC is not supported or that information is not known yet.
+	 */
+	getSupportedCCVersion(
 		cc: CommandClasses,
 		nodeId: number,
 		endpointIndex?: number,
@@ -48,12 +64,12 @@ export interface ZWaveHost {
 		endpointIndex?: number,
 	): boolean;
 
-	getHighestSecurityClass(nodeId: number): SecurityClass | undefined;
+	getHighestSecurityClass(nodeId: number): MaybeNotKnown<SecurityClass>;
 
 	hasSecurityClass(
 		nodeId: number,
 		securityClass: SecurityClass,
-	): Maybe<boolean>;
+	): MaybeNotKnown<boolean>;
 
 	setSecurityClass(
 		nodeId: number,
@@ -70,7 +86,7 @@ export interface ZWaveHost {
 	/**
 	 * Returns the next session ID for supervised communication
 	 */
-	getNextSupervisionSessionId(): number;
+	getNextSupervisionSessionId(nodeId: number): number;
 
 	getDeviceConfig?: (nodeId: number) => DeviceConfig | undefined;
 

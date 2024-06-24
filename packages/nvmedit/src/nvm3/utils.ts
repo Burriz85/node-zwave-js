@@ -102,7 +102,7 @@ export function dumpPage(page: NVM3Page, json: boolean = false): void {
 export function dumpObject(obj: NVM3Object, json: boolean = false): void {
 	try {
 		if (json) {
-			const file = NVMFile.from(obj);
+			const file = NVMFile.from(obj, "7.0.0");
 			console.log(`${JSON.stringify(file.toJSON(), null, 2)}`);
 			console.log();
 			return;
@@ -116,9 +116,9 @@ export function dumpObject(obj: NVM3Object, json: boolean = false): void {
 	console.log(`${prefix}  fragment type: ${FragmentType[obj.fragmentType]}`);
 	if (obj.data) {
 		console.log(
-			`${prefix}  data: ${obj.data.toString("hex")} (${
-				obj.data.length
-			} bytes)`,
+			`${prefix}  data: ${
+				obj.data.toString("hex")
+			} (${obj.data.length} bytes)`,
 		);
 	}
 	console.log();

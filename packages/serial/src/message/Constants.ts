@@ -1,3 +1,5 @@
+import { ZnifferMessageHeaders } from "../MessageHeaders";
+
 /** Indicates the type of a data message */
 export enum MessageType {
 	Request = 0x0,
@@ -52,7 +54,7 @@ export enum FunctionType {
 	UNKNOWN_FUNC_MEMORY_PUT_BUFFER = 0x24,
 
 	EnterBootloader = 0x27, // Leave Serial API and enter bootloader (700+ series only). Enter Auto-Programming mode (500 series only).
-	UNKNOWN_FUNC_UNKNOWN_0x28 = 0x28, // ??
+	UNKNOWN_FUNC_UNKNOWN_0x28 = 0x28, // ZW_NVRGetValue(offset, length) => NVRdata[], see INS13954-13
 
 	GetNVMId = 0x29, // Returns information about the external NVM
 	ExtNVMReadLongBuffer = 0x2a, // Reads a buffer from the external NVM
@@ -93,6 +95,9 @@ export enum FunctionType {
 
 	FUNC_ID_ZW_CREATE_NEW_PRIMARY = 0x4c, // Control the createnewprimary process...start, stop, etc.
 	FUNC_ID_ZW_CONTROLLER_CHANGE = 0x4d, // Control the transferprimary process...start, stop, etc.
+
+	AssignPriorityReturnRoute = 0x4f, // Assign a priority route between two nodes
+
 	FUNC_ID_ZW_SET_LEARN_MODE = 0x50, // Put a controller into learn mode for replication/ receipt of configuration info
 	AssignSUCReturnRoute = 0x51, // Assign a return route to the SUC
 	FUNC_ID_ZW_ENABLE_SUC = 0x52, // Make a controller a Static Update Controller
@@ -102,7 +107,7 @@ export enum FunctionType {
 	GetSUCNodeId = 0x56, // Try to retrieve a Static Update Controller node id (zero if no SUC present)
 
 	UNKNOWN_FUNC_SEND_SUC_ID = 0x57,
-	UNKNOWN_FUNC_AssignPrioritySUCReturnRoute = 0x58,
+	AssignPrioritySUCReturnRoute = 0x58, // Assign a priority route from a node to the SUC
 	UNKNOWN_FUNC_REDISCOVERY_NEEDED = 0x59,
 
 	FUNC_ID_ZW_REQUEST_NODE_NEIGHBOR_UPDATE_OPTIONS = 0x5a, // Allow options for request node neighbor update
@@ -133,8 +138,8 @@ export enum FunctionType {
 
 	UNKNOWN_FUNC_LOCK_ROUTE_RESPONSE = 0x90, // ??
 	UNKNOWN_FUNC_SEND_DATA_ROUTE_DEMO = 0x91, // ??
-	UNKNOWN_FUNC_GET_PRIORITY_ROUTE = 0x92, // ??
-	UNKNOWN_FUNC_SET_PRIORITY_ROUTE = 0x93, // ??
+	GetPriorityRoute = 0x92, // Get the route that is used as the first routing attempty when transmitting to a node
+	SetPriorityRoute = 0x93, // Set the route that shall be used as the first routing attempty when transmitting to a node
 	UNKNOWN_FUNC_SERIAL_API_TEST = 0x95, // ??
 	UNKNOWN_FUNC_UNKNOWN_0x98 = 0x98, // ??
 
@@ -152,22 +157,32 @@ export enum FunctionType {
 
 	UNKNOWN_FUNC_UNKNOWN_0xB4 = 0xb4, // ??
 
-	UNKNOWN_FUNC_WATCH_DOG_ENABLE = 0xb6,
-	UNKNOWN_FUNC_WATCH_DOG_DISABLE = 0xb7,
-	UNKNOWN_FUNC_WATCH_DOG_KICK = 0xb8,
+	EnableWatchdog500 = 0xb6, // Enable Watchdog (500 series and older)
+	DisableWatchdog500 = 0xb7, // Disable Watchdog (500 series and older)
+	KickWatchdog500 = 0xb8, // Kick Watchdog (500 series and older)
 	UNKNOWN_FUNC_UNKNOWN_0xB9 = 0xb9, // ??
 	UNKNOWN_FUNC_RF_POWERLEVEL_GET = 0xba, // Get RF Power level
 
 	UNKNOWN_FUNC_GET_LIBRARY_TYPE = 0xbd,
-	UNKNOWN_FUNC_SEND_TEST_FRAME = 0xbe,
+	SendTestFrame = 0xbe, // Sends a NOP Power frame to the given node
 	UNKNOWN_FUNC_GET_PROTOCOL_STATUS = 0xbf,
 
 	FUNC_ID_ZW_SET_PROMISCUOUS_MODE = 0xd0, // Set controller into promiscuous mode to listen to all messages
 	FUNC_ID_PROMISCUOUS_APPLICATION_COMMAND_HANDLER = 0xd1,
 
-	UNKNOWN_FUNC_UNKNOWN_0xD2 = 0xd2, // ??
-	UNKNOWN_FUNC_UNKNOWN_0xD3 = 0xd3, // ??
+	StartWatchdog = 0xd2, // Start Hardware Watchdog (700 series and newer)
+	StopWatchdog = 0xd3, // Stop Hardware Watchdog (700 series and newer)
+
 	UNKNOWN_FUNC_UNKNOWN_0xD4 = 0xd4, // ??
+
+	Shutdown = 0xd9, // Instruct the Z-Wave API to shut down in order to safely remove the power
+
+	// Long range controller support
+	GetLongRangeNodes = 0xda, // Used after GetSerialApiInitData to get the nodes with IDs > 0xFF
+	GetLongRangeChannel = 0xdb,
+	SetLongRangeChannel = 0xdc,
+	SetLongRangeShadowNodeIDs = 0xdd,
+
 	UNKNOWN_FUNC_UNKNOWN_0xEF = 0xef, // ??
 
 	// Special commands for Z-Wave.me sticks
@@ -176,4 +191,27 @@ export enum FunctionType {
 	UNKNOWN_FUNC_ZMEBootloaderFlash = 0xf4,
 	UNKNOWN_FUNC_ZMECapabilities = 0xf5,
 	UNKNOWN_FUNC_ZMESerialAPIOptions = 0xf8,
+}
+
+export enum ZnifferFunctionType {
+	GetVersion = 0x01,
+	SetFrequency = 0x02,
+	GetFrequencies = 0x03,
+	Start = 0x04,
+	Stop = 0x05,
+	SetBaudRate = 0x0e,
+	GetFrequencyInfo = 0x13,
+}
+
+export enum ZnifferMessageType {
+	Command = ZnifferMessageHeaders.SOCF,
+	Data = ZnifferMessageHeaders.SODF,
+}
+
+export enum ZnifferFrameType {
+	Command = 0x00,
+	Data = 0x01,
+	BeamFrame = 0x02,
+	BeamStart = 0x04,
+	BeamStop = 0x05,
 }

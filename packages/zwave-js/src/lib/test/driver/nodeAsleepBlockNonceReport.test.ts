@@ -1,129 +1,154 @@
-import { CommandClasses, SecurityManager } from "@zwave-js/core";
-import { MessageHeaders, MockSerialPort } from "@zwave-js/serial";
-import type { ThrowingMap } from "@zwave-js/shared";
+import {
+	SecurityCCCommandEncapsulation,
+	SecurityCCNonceGet,
+	SecurityCCNonceReport,
+} from "@zwave-js/cc";
+import { SecurityManager } from "@zwave-js/core";
+import {
+	MOCK_FRAME_ACK_TIMEOUT,
+	type MockNodeBehavior,
+	MockZWaveFrameType,
+	createMockZWaveRequestFrame,
+} from "@zwave-js/testing";
 import { wait } from "alcalzone-shared/async";
-import type { Driver } from "../../driver/Driver";
-import { ZWaveNode } from "../../node/Node";
-import { NodeStatus } from "../../node/_Types";
-import { createAndStartDriver } from "../utils";
-import { isFunctionSupported_NoBridge } from "./fixtures";
+import path from "node:path";
+import { integrationTest } from "../integrationTestSuite";
 
-describe("regression tests", () => {
-	let driver: Driver;
-	let serialport: MockSerialPort;
-	process.env.LOGLEVEL = "debug";
+integrationTest(
+	"when a NonceReport does not get delivered, it does not block further nonce requests",
+	{
+		// debug: true,
 
-	beforeEach(async () => {
-		({ driver, serialport } = await createAndStartDriver({
-			securityKeys: {
-				S0_Legacy: Buffer.alloc(16, 0),
-			},
-			attempts: {
-				sendData: 1,
-			},
-		}));
+		provisioningDirectory: path.join(
+			__dirname,
+			"fixtures/nodeAsleepBlockNonceReport",
+		),
 
-		driver["_securityManager"] = new SecurityManager({
-			networkKey: driver.options.securityKeys!.S0_Legacy!,
-			ownNodeId: 1,
-			nonceTimeout: driver.options.timeouts.nonce,
-		});
+		customSetup: async (driver, controller, mockNode) => {
+			// Create a security manager for the node
+			const sm0Node = new SecurityManager({
+				ownNodeId: mockNode.id,
+				networkKey: driver.options.securityKeys!.S0_Legacy!,
+				nonceTimeout: 100000,
+			});
+			mockNode.host.securityManager = sm0Node;
 
-		driver["_controller"] = {
-			ownNodeId: 1,
-			isFunctionSupported: isFunctionSupported_NoBridge,
-			nodes: new Map(),
-			incrementStatistics: () => {},
-			removeAllListeners: () => {},
-		} as any;
-	});
+			// Create a security manager for the controller
+			const sm0Ctrlr = new SecurityManager({
+				ownNodeId: controller.host.ownNodeId,
+				networkKey: driver.options.securityKeys!.S0_Legacy!,
+				nonceTimeout: 100000,
+			});
+			controller.host.securityManager = sm0Ctrlr;
 
-	afterEach(async () => {
-		await driver.destroy();
-		driver.removeAllListeners();
-	});
+			// Respond to S0 Nonce Get
+			const respondToS0NonceGet: MockNodeBehavior = {
+				async onControllerFrame(controller, self, frame) {
+					if (
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload instanceof SecurityCCNonceGet
+					) {
+						const nonce = sm0Node.generateNonce(
+							controller.host.ownNodeId,
+							8,
+						);
+						const cc = new SecurityCCNonceReport(self.host, {
+							nodeId: controller.host.ownNodeId,
+							nonce,
+						});
+						await self.sendToController(
+							createMockZWaveRequestFrame(cc, {
+								ackRequested: false,
+							}),
+						);
+						return true;
+					}
+					return false;
+				},
+			};
+			mockNode.defineBehavior(respondToS0NonceGet);
 
-	it("when a NonceReport does not get delivered, it does not block further nonce requests", async () => {
-		const node44 = new ZWaveNode(44, driver);
-		(driver.controller.nodes as ThrowingMap<number, ZWaveNode>).set(
-			44,
-			node44,
-		);
-		// Add event handlers for the nodes
-		for (const node of driver.controller.nodes.values()) {
-			driver["addNodeEventHandlers"](node);
-		}
-		// TODO: remove hack in packages/shared/src/wrappingCounter.ts when reworking this test to the new testing setup
-		(driver.getNextCallbackId as any).value = 2;
+			// Parse Security CC commands. This MUST be defined last, since defineBehavior will prepend it to the list
+			const parseS0CC: MockNodeBehavior = {
+				async onControllerFrame(controller, self, frame) {
+					// We don't support sequenced commands here
+					if (
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload
+							instanceof SecurityCCCommandEncapsulation
+					) {
+						frame.payload.mergePartialCCs(undefined as any, []);
+					}
+					// This just decodes - we need to call further handlers
+					return false;
+				},
+			};
+			mockNode.defineBehavior(parseS0CC);
+		},
 
-		node44["isListening"] = false;
-		node44["isFrequentListening"] = false;
-		node44.addCC(CommandClasses.Security, { isSupported: true });
-		node44.markAsAsleep();
-		expect(node44.status).toBe(NodeStatus.Asleep);
+		testBody: async (t, driver, node, mockController, mockNode) => {
+			// The node requests a nonce while asleep, but the ACK gets lost
+			node.markAsAsleep();
+			mockNode.autoAckControllerFrames = false;
 
-		const ACK = Buffer.from([MessageHeaders.ACK]);
+			let nonceRequest = new SecurityCCNonceGet(mockNode.host, {
+				nodeId: mockController.host.ownNodeId,
+			});
+			await mockNode.sendToController(
+				createMockZWaveRequestFrame(nonceRequest, {
+					ackRequested: false,
+				}),
+			);
 
-		// « [Node 044] [REQ] [ApplicationCommand]
-		//   └─[SecurityCCNonceGet]
-		serialport.receiveData(Buffer.from("010a0004002c029840bc00bb", "hex"));
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
+			// The driver should send a Nonce Report command
+			await wait(200);
+			mockNode.assertReceivedControllerFrame(
+				(f) =>
+					f.type === MockZWaveFrameType.Request
+					&& f.payload instanceof SecurityCCNonceReport,
+				{
+					errorMessage: "Expected a Nonce Report to be sent",
+				},
+			);
 
-		await wait(50);
+			mockNode.clearReceivedControllerFrames();
+			await wait(MOCK_FRAME_ACK_TIMEOUT);
 
-		// The driver should send a Nonce Report command
-		expect(serialport.lastWrite?.slice(6, 8)).toEqual(
-			Buffer.from("9880", "hex"),
-		);
-		await wait(10);
-		serialport.receiveData(ACK);
+			// No further Nonce Report should have been sent
+			mockNode.assertReceivedControllerFrame(
+				(f) =>
+					f.type === MockZWaveFrameType.Request
+					&& f.payload instanceof SecurityCCNonceReport,
+				{
+					noMatch: true,
+					errorMessage: "Expected NO further Nonce Report to be sent",
+				},
+			);
 
-		await wait(50);
+			// The node's ACK will now be received again
+			mockNode.autoAckControllerFrames = true;
 
-		// « [RES] [SendData]
-		//     was sent: true
-		serialport.receiveData(Buffer.from("0104011301e8", "hex"));
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
+			// And subsequent requests must be answered
+			nonceRequest = new SecurityCCNonceGet(mockNode.host, {
+				nodeId: mockController.host.ownNodeId,
+			});
+			await mockNode.sendToController(
+				createMockZWaveRequestFrame(nonceRequest, {
+					ackRequested: false,
+				}),
+			);
 
-		await wait(50);
+			await wait(200);
+			mockNode.assertReceivedControllerFrame(
+				(f) =>
+					f.type === MockZWaveFrameType.Request
+					&& f.payload instanceof SecurityCCNonceReport,
+				{
+					errorMessage: "Expected a Nonce Report to be sent",
+				},
+			);
 
-		// « [REQ] [SendData]
-		//   callback id:     3
-		//   transmit status: NoACK
-		serialport.receiveData(
-			Buffer.from(
-				"011800130301022c007f7f7f7f7f000106000000000213092c94",
-				"hex",
-			),
-		);
-		expect(serialport.lastWrite).toEqual(ACK);
-
-		await wait(600);
-
-		// The driver should NOT send a Nonce Report command again
-		expect(serialport.lastWrite?.slice(6, 8)).not.toEqual(
-			Buffer.from("9880", "hex"),
-		);
-
-		await wait(50);
-
-		// Subsequent requests must be handled again
-
-		// « [Node 044] [REQ] [ApplicationCommand]
-		//   └─[SecurityCCNonceGet]
-		serialport.receiveData(Buffer.from("010a0004002c029840bc00bb", "hex"));
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
-
-		await wait(50);
-
-		// The driver should send a Nonce Report command
-		expect(serialport.lastWrite?.slice(6, 8)).toEqual(
-			Buffer.from("9880", "hex"),
-		);
-		await wait(10);
-		serialport.receiveData(ACK);
-	}, 30000);
-});
+			t.pass();
+		},
+	},
+);

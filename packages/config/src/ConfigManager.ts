@@ -1,53 +1,58 @@
 import {
-	isZWaveError,
 	ZWaveError,
 	ZWaveErrorCodes,
 	ZWaveLogContainer,
+	isZWaveError,
 } from "@zwave-js/core";
-import { getErrorMessage, JSONObject, num2hex } from "@zwave-js/shared";
+import { type JSONObject, getErrorMessage, num2hex } from "@zwave-js/shared";
 import { isObject } from "alcalzone-shared/typeguards";
 import { pathExists, readFile } from "fs-extra";
 import JSON5 from "json5";
-import path from "path";
+import path from "node:path";
 import {
-	BasicDeviceClass,
-	BasicDeviceClassMap,
+	type BasicDeviceClass,
+	type BasicDeviceClassMap,
 	GenericDeviceClass,
-	GenericDeviceClassMap,
+	type GenericDeviceClassMap,
+	type SpecificDeviceClass,
 	getDefaultGenericDeviceClass,
 	getDefaultSpecificDeviceClass,
-	SpecificDeviceClass,
 } from "./DeviceClasses";
 import {
+	type IndicatorMap,
+	type IndicatorPropertiesMap,
+	IndicatorProperty,
+} from "./Indicators";
+import { ConfigLogger } from "./Logger";
+import {
+	type ManufacturersMap,
+	loadManufacturersInternal,
+	saveManufacturersInternal,
+} from "./Manufacturers";
+import {
+	Meter,
+	type MeterMap,
+	type MeterScale,
+	getDefaultMeterScale,
+} from "./Meters";
+import { Notification, type NotificationMap } from "./Notifications";
+import {
+	type NamedScalesGroupMap,
+	Scale,
+	type ScaleGroup,
+	getDefaultScale,
+} from "./Scales";
+import { SensorType, type SensorTypeMap } from "./SensorTypes";
+import {
 	ConditionalDeviceConfig,
-	DeviceConfig,
-	DeviceConfigIndex,
-	FulltextDeviceConfigIndex,
+	type DeviceConfig,
+	type DeviceConfigIndex,
+	type FulltextDeviceConfigIndex,
 	generatePriorityDeviceIndex,
 	getDevicesPaths,
 	loadDeviceIndexInternal,
 	loadFulltextDeviceIndexInternal,
 } from "./devices/DeviceConfig";
-import {
-	IndicatorMap,
-	IndicatorPropertiesMap,
-	IndicatorProperty,
-} from "./Indicators";
-import { ConfigLogger } from "./Logger";
-import {
-	loadManufacturersInternal,
-	ManufacturersMap,
-	saveManufacturersInternal,
-} from "./Manufacturers";
-import { getDefaultMeterScale, Meter, MeterMap, MeterScale } from "./Meters";
-import { Notification, NotificationMap } from "./Notifications";
-import {
-	getDefaultScale,
-	NamedScalesGroupMap,
-	Scale,
-	ScaleGroup,
-} from "./Scales";
-import { SensorType, SensorTypeMap } from "./SensorTypes";
 import {
 	configDir,
 	externalConfigDir,
@@ -298,8 +303,9 @@ export class ConfigManager {
 					);
 				}
 				if (!this._indicators) this._indicators = new Map();
-				if (!this._indicatorProperties)
+				if (!this._indicatorProperties) {
 					this._indicatorProperties = new Map();
+				}
 			} else {
 				// This is an unexpected error
 				throw e;
@@ -487,10 +493,12 @@ export class ConfigManager {
 						"error",
 					);
 				}
-				if (!this._basicDeviceClasses)
+				if (!this._basicDeviceClasses) {
 					this._basicDeviceClasses = new Map();
-				if (!this._genericDeviceClasses)
+				}
+				if (!this._genericDeviceClasses) {
 					this._genericDeviceClasses = new Map();
+				}
 			} else {
 				// This is an unexpected error
 				throw e;
@@ -508,9 +516,8 @@ export class ConfigManager {
 
 		return {
 			key: basic,
-			label:
-				this._basicDeviceClasses.get(basic) ??
-				`UNKNOWN (${num2hex(basic)})`,
+			label: this._basicDeviceClasses.get(basic)
+				?? `UNKNOWN (${num2hex(basic)})`,
 		};
 	}
 
@@ -523,8 +530,8 @@ export class ConfigManager {
 		}
 
 		return (
-			this._genericDeviceClasses.get(generic) ??
-			getDefaultGenericDeviceClass(generic)
+			this._genericDeviceClasses.get(generic)
+				?? getDefaultGenericDeviceClass(generic)
 		);
 	}
 
@@ -534,8 +541,8 @@ export class ConfigManager {
 	): SpecificDeviceClass {
 		const genericClass = this.lookupGenericDeviceClass(generic);
 		return (
-			genericClass.specific.get(specific) ??
-			getDefaultSpecificDeviceClass(genericClass, specific)
+			genericClass.specific.get(specific)
+				?? getDefaultSpecificDeviceClass(genericClass, specific)
 		);
 	}
 
@@ -568,8 +575,9 @@ export class ConfigManager {
 		} catch (e) {
 			// If the index file is missing or invalid, don't try to find it again
 			if (
-				(!isZWaveError(e) && e instanceof Error) ||
-				(isZWaveError(e) && e.code === ZWaveErrorCodes.Config_Invalid)
+				(!isZWaveError(e) && e instanceof Error)
+				|| (isZWaveError(e)
+					&& e.code === ZWaveErrorCodes.Config_Invalid)
 			) {
 				// Fall back to no index on production systems
 				if (!this.index) this.index = [];
@@ -617,7 +625,7 @@ export class ConfigManager {
 		if (!this.index) await this.loadDeviceIndex();
 
 		// Look up the device in the index
-		const indexEntry = this.index!.find(
+		const indexEntries = this.index!.filter(
 			getDeviceEntryPredicate(
 				manufacturerId,
 				productType,
@@ -625,6 +633,9 @@ export class ConfigManager {
 				firmwareVersion,
 			),
 		);
+		// If there are multiple with overlapping firmware ranges, return the preferred one first
+		const indexEntry = indexEntries.find((e) => !!e.preferred)
+			?? indexEntries[0];
 
 		if (indexEntry) {
 			const devicesDir = getDevicesPaths(
@@ -641,22 +652,28 @@ export class ConfigManager {
 				.relative(devicesDir, filePath)
 				.startsWith("..");
 
+			// When a device file is located in a different root directory than the embedded config files,
+			// we use the embedded dir a fallback
+			const rootDir = indexEntry.rootDir ?? devicesDir;
+			const fallbackDirs = rootDir === devicesDir
+				? undefined
+				: [devicesDir];
+
 			try {
 				return await ConditionalDeviceConfig.from(
 					filePath,
 					isEmbedded,
-					{
-						// When looking for device files, fall back to the embedded config dir
-						rootDir: indexEntry.rootDir ?? devicesDir,
-					},
+					{ rootDir, fallbackDirs },
 				);
 			} catch (e) {
 				if (process.env.NODE_ENV !== "test") {
 					this.logger.print(
-						`Error loading device config ${filePath}: ${getErrorMessage(
-							e,
-							true,
-						)}`,
+						`Error loading device config ${filePath}: ${
+							getErrorMessage(
+								e,
+								true,
+							)
+						}`,
 						"error",
 					);
 				}
@@ -742,8 +759,8 @@ export class ConfigManager {
 
 	public getNotificationName(notificationType: number): string {
 		return (
-			this.lookupNotificationUnsafe(notificationType)?.name ??
-			`Unknown (${num2hex(notificationType)})`
+			this.lookupNotificationUnsafe(notificationType)?.name
+				?? `Unknown (${num2hex(notificationType)})`
 		);
 	}
 }
@@ -809,9 +826,11 @@ export async function loadDeviceClassesInternal(
 		}
 
 		const genericDeviceClasses = new Map<number, GenericDeviceClass>();
-		for (const [key, genericDefinition] of Object.entries(
-			definition.generic,
-		)) {
+		for (
+			const [key, genericDefinition] of Object.entries(
+				definition.generic,
+			)
+		) {
 			if (!hexKeyRegexNDigits.test(key)) {
 				throwInvalidConfig(
 					"device classes",
@@ -892,9 +911,11 @@ export async function loadIndicatorsInternal(
 		}
 
 		const properties = new Map<number, IndicatorProperty>();
-		for (const [id, propDefinition] of Object.entries(
-			definition.properties,
-		)) {
+		for (
+			const [id, propDefinition] of Object.entries(
+				definition.properties,
+			)
+		) {
 			if (!hexKeyRegexNDigits.test(id)) {
 				throwInvalidConfig(
 					"indicators",
@@ -1051,9 +1072,11 @@ export async function loadNamedScalesInternal(
 				Scale
 			>();
 			named.name = name;
-			for (const [key, scaleDefinition] of Object.entries(
-				scales as JSONObject,
-			)) {
+			for (
+				const [key, scaleDefinition] of Object.entries(
+					scales as JSONObject,
+				)
+			) {
 				if (!hexKeyRegexNDigits.test(key)) {
 					throwInvalidConfig(
 						"named scales",

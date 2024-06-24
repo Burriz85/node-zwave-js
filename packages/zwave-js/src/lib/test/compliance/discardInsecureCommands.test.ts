@@ -1,7 +1,7 @@
 import {
 	BasicCCReport,
 	BasicCCValues,
-	CommandClass,
+	type CommandClass,
 	InvalidCC,
 	Security2CC,
 	Security2CCNonceGet,
@@ -13,12 +13,12 @@ import {
 	ZWaveErrorCodes,
 } from "@zwave-js/core";
 import {
-	createMockZWaveRequestFrame,
-	MockZWaveFrameType,
 	type MockNodeBehavior,
+	MockZWaveFrameType,
+	createMockZWaveRequestFrame,
 } from "@zwave-js/testing";
 import { wait } from "alcalzone-shared/async";
-import path from "path";
+import path from "node:path";
 import { integrationTest } from "../integrationTestSuite";
 
 integrationTest(
@@ -72,8 +72,8 @@ integrationTest(
 			const respondToNonceGet: MockNodeBehavior = {
 				async onControllerFrame(controller, self, frame) {
 					if (
-						frame.type === MockZWaveFrameType.Request &&
-						frame.payload instanceof Security2CCNonceGet
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload instanceof Security2CCNonceGet
 					) {
 						const nonce = smNode.generateNonce(
 							controller.host.ownNodeId,
@@ -100,14 +100,14 @@ integrationTest(
 			const handleInvalidCC: MockNodeBehavior = {
 				async onControllerFrame(controller, self, frame) {
 					if (
-						frame.type === MockZWaveFrameType.Request &&
-						frame.payload instanceof InvalidCC
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload instanceof InvalidCC
 					) {
 						if (
-							frame.payload.reason ===
-								ZWaveErrorCodes.Security2CC_CannotDecode ||
-							frame.payload.reason ===
-								ZWaveErrorCodes.Security2CC_NoSPAN
+							frame.payload.reason
+								=== ZWaveErrorCodes.Security2CC_CannotDecode
+							|| frame.payload.reason
+								=== ZWaveErrorCodes.Security2CC_NoSPAN
 						) {
 							const nonce = smNode.generateNonce(
 								controller.host.ownNodeId,
@@ -132,7 +132,7 @@ integrationTest(
 			mockNode.defineBehavior(handleInvalidCC);
 		},
 
-		testBody: async (driver, node, mockController, mockNode) => {
+		testBody: async (t, driver, node, mockController, mockNode) => {
 			// Send a secure Basic SET to sync the SPAN
 			await node.commandClasses.Basic.set(1);
 
@@ -158,7 +158,7 @@ integrationTest(
 			await wait(100);
 
 			let currentValue = node.getValue(BasicCCValues.currentValue.id);
-			expect(currentValue).toBe(99);
+			t.is(currentValue, 99);
 
 			// Then send an unencypted one that should be discarded
 			nodeToHost = new BasicCCReport(mockNode.host, {
@@ -176,7 +176,7 @@ integrationTest(
 			await wait(100);
 
 			currentValue = node.getValue(BasicCCValues.currentValue.id);
-			expect(currentValue).toBe(99); // unchanged
+			t.is(currentValue, 99); // unchanged
 		},
 	},
 );

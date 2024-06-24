@@ -1,19 +1,19 @@
 import {
 	CommandClasses,
-	enumValuesToMetadataStates,
-	Maybe,
-	MessageOrCCLogEntry,
+	type MaybeNotKnown,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	MessageRecord,
-	validatePayload,
+	type MessageRecord,
 	ValueMetadata,
+	enumValuesToMetadataStates,
+	validatePayload,
 } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { getEnumMemberName } from "@zwave-js/shared/safe";
 import {
 	CCAPI,
-	PollValueImplementation,
 	POLL_VALUE,
+	type PollValueImplementation,
 	throwUnsupportedProperty,
 } from "../lib/API";
 import {
@@ -34,17 +34,23 @@ import { ThermostatFanState, ThermostatFanStateCommand } from "../lib/_Types";
 
 export const ThermostatFanStateCCValues = Object.freeze({
 	...V.defineStaticCCValues(CommandClasses["Thermostat Fan State"], {
-		...V.staticPropertyWithName("fanState", "state", {
-			...ValueMetadata.ReadOnlyUInt8,
-			states: enumValuesToMetadataStates(ThermostatFanState),
-			label: "Thermostat fan state",
-		} as const),
+		...V.staticPropertyWithName(
+			"fanState",
+			"state",
+			{
+				...ValueMetadata.ReadOnlyUInt8,
+				states: enumValuesToMetadataStates(ThermostatFanState),
+				label: "Thermostat fan state",
+			} as const,
+		),
 	}),
 });
 
 @API(CommandClasses["Thermostat Fan State"])
 export class ThermostatFanStateCCAPI extends CCAPI {
-	public supportsCommand(cmd: ThermostatFanStateCommand): Maybe<boolean> {
+	public supportsCommand(
+		cmd: ThermostatFanStateCommand,
+	): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case ThermostatFanStateCommand.Get:
 				return this.isSinglecast();
@@ -52,17 +58,17 @@ export class ThermostatFanStateCCAPI extends CCAPI {
 		return super.supportsCommand(cmd);
 	}
 
-	protected [POLL_VALUE]: PollValueImplementation = async ({
-		property,
-	}): Promise<unknown> => {
-		switch (property) {
-			case "state":
-				return this.get();
+	protected get [POLL_VALUE](): PollValueImplementation {
+		return async function(this: ThermostatFanStateCCAPI, { property }) {
+			switch (property) {
+				case "state":
+					return this.get();
 
-			default:
-				throwUnsupportedProperty(this.ccId, property);
-		}
-	};
+				default:
+					throwUnsupportedProperty(this.ccId, property);
+			}
+		};
+	}
 
 	// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 	public async get() {
@@ -75,11 +81,12 @@ export class ThermostatFanStateCCAPI extends CCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<ThermostatFanStateCCReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			ThermostatFanStateCCReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		if (response) {
 			return response?.state;
 		}
@@ -128,9 +135,8 @@ export class ThermostatFanStateCC extends CommandClass {
 		if (currentStatus) {
 			applHost.controllerLog.logNode(node.id, {
 				endpoint: this.endpointIndex,
-				message:
-					"received current thermostat fan state: " +
-					getEnumMemberName(ThermostatFanState, currentStatus),
+				message: "received current thermostat fan state: "
+					+ getEnumMemberName(ThermostatFanState, currentStatus),
 				direction: "inbound",
 			});
 		}

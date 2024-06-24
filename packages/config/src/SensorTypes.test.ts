@@ -1,9 +1,10 @@
+import test, { type ExecutionContext } from "ava";
 import fsExtra from "fs-extra";
+import sinon from "sinon";
 import { ConfigManager } from "./ConfigManager";
 
-jest.mock("fs-extra");
-const readFileMock = fsExtra.readFile as jest.Mock;
-const pathExistsMock = fsExtra.pathExists as jest.Mock;
+const readFileStub = sinon.stub(fsExtra, "readFile");
+const pathExistsStub = sinon.stub(fsExtra, "pathExists");
 
 const dummySensorTypes = {
 	"0x0a": {
@@ -39,156 +40,176 @@ const dummyScales = {
 	},
 };
 
-describe("lib/config/SensorTypes", () => {
-	describe("lookupSensorType (with missing file)", () => {
-		let configManager: ConfigManager;
+{
+	async function prepareTest(t: ExecutionContext): Promise<ConfigManager> {
+		// Loading configuration may take a while on CI
+		t.timeout(30000);
 
-		beforeAll(
-			async () => {
-				pathExistsMock.mockClear();
-				readFileMock.mockClear();
-				pathExistsMock.mockResolvedValue(false);
-				readFileMock.mockRejectedValue(
-					new Error("File does not exist"),
-				);
+		pathExistsStub.reset();
+		readFileStub.reset();
+		pathExistsStub.resolves(false);
+		readFileStub.rejects(new Error("File does not exist"));
 
-				configManager = new ConfigManager();
-				await configManager.loadSensorTypes();
-			},
-			// Loading configuration may take a while on CI
-			30000,
+		const configManager = new ConfigManager();
+		await configManager.loadNamedScales();
+		await configManager.loadSensorTypes();
+		return configManager;
+	}
+
+	test.serial(
+		"lookupSensorType (with missing file) does not throw",
+		async (t) => {
+			const configManager = await prepareTest(t);
+			t.notThrows(() => configManager.lookupSensorType(0));
+		},
+	);
+
+	test.serial(
+		"lookupSensorType (with missing file) returns undefined",
+		async (t) => {
+			const configManager = await prepareTest(t);
+			t.is(configManager.lookupSensorType(0x0e), undefined);
+			t.is(configManager.lookupSensorType(0xff), undefined);
+		},
+	);
+}
+
+{
+	async function prepareTest(t: ExecutionContext): Promise<ConfigManager> {
+		// Loading configuration may take a while on CI
+		t.timeout(30000);
+
+		pathExistsStub.reset();
+		readFileStub.reset();
+		pathExistsStub.resolves(true);
+		readFileStub.resolves(`{"0x01": ` as any);
+
+		const configManager = new ConfigManager();
+		await configManager.loadNamedScales();
+		await configManager.loadSensorTypes();
+		return configManager;
+	}
+
+	test.serial(
+		"lookupSensorType (with invalid file) does not throw",
+		async (t) => {
+			const configManager = await prepareTest(t);
+			t.notThrows(() => configManager.lookupSensorType(0x0e));
+		},
+	);
+
+	test.serial(
+		"lookupSensorType (with invalid file) returns undefined",
+		async (t) => {
+			const configManager = await prepareTest(t);
+			t.is(configManager.lookupSensorType(0x0e), undefined);
+		},
+	);
+}
+
+{
+	async function prepareTest(t: ExecutionContext): Promise<ConfigManager> {
+		// Loading configuration may take a while on CI
+		t.timeout(30000);
+
+		readFileStub.reset();
+		pathExistsStub.reset();
+
+		pathExistsStub.resolves(true);
+		readFileStub.callsFake(
+			((path: string) => {
+				if (path.endsWith("sensorTypes.json")) {
+					return Promise.resolve(JSON.stringify(dummySensorTypes));
+				}
+				if (path.endsWith("scales.json")) {
+					return Promise.resolve(JSON.stringify(dummyScales));
+				}
+			}) as any,
 		);
 
-		it("does not throw", async () => {
-			expect(() => configManager.lookupSensorType(0)).not.toThrow();
-		});
+		const configManager = new ConfigManager();
+		await configManager.loadNamedScales();
+		await configManager.loadSensorTypes();
 
-		it("returns undefined", async () => {
-			expect(configManager.lookupSensorType(0x0e)).toBeUndefined();
-			expect(configManager.lookupSensorType(0xff)).toBeUndefined();
-		});
-	});
+		return configManager;
+	}
 
-	describe("lookupSensorType (with invalid file)", () => {
-		let configManager: ConfigManager;
+	test.serial(
+		"lookupSensorType() returns the sensor type definition if it is defined",
+		async (t) => {
+			const configManager = await prepareTest(t);
 
-		beforeAll(
-			async () => {
-				pathExistsMock.mockClear();
-				readFileMock.mockClear();
-				pathExistsMock.mockResolvedValue(true);
-				readFileMock.mockResolvedValue(`{"0x01": `);
-
-				configManager = new ConfigManager();
-				await configManager.loadSensorTypes();
-			},
-			// Loading configuration may take a while on CI
-			30000,
-		);
-
-		it("does not throw", async () => {
-			expect(() => configManager.lookupSensorType(0x0e)).not.toThrow();
-		});
-
-		it("returns undefined", async () => {
-			expect(configManager.lookupSensorType(0x0e)).toBeUndefined();
-		});
-	});
-
-	describe("lookupSensorType()", () => {
-		let configManager: ConfigManager;
-
-		beforeAll(
-			async () => {
-				pathExistsMock.mockResolvedValue(true);
-				readFileMock.mockImplementation((path: string) => {
-					if (path.endsWith("sensorTypes.json"))
-						return Promise.resolve(
-							JSON.stringify(dummySensorTypes),
-						);
-					if (path.endsWith("scales.json"))
-						return Promise.resolve(JSON.stringify(dummyScales));
-				});
-
-				configManager = new ConfigManager();
-				await configManager.loadNamedScales();
-				await configManager.loadSensorTypes();
-			},
-			// Loading configuration may take a while on CI
-			30000,
-		);
-
-		beforeEach(() => {
-			readFileMock.mockClear();
-			pathExistsMock.mockClear();
-		});
-
-		it("returns the sensor type definition if it is defined", async () => {
 			const test1 = configManager.lookupSensorType(0x0a);
-			expect(test1).not.toBeUndefined();
-			expect(test1!.label).toBe("Dummy temperature");
+			t.not(test1, undefined);
+			t.is(test1!.label, "Dummy temperature");
 
-			expect(configManager.lookupSensorType(0xff)).toBeUndefined();
-		});
-	});
+			t.is(configManager.lookupSensorType(0xff), undefined);
+		},
+	);
+}
 
-	describe("lookupSensorScale()", () => {
-		let configManager: ConfigManager;
+{
+	async function prepareTest(t: ExecutionContext): Promise<ConfigManager> {
+		// Loading configuration may take a while on CI
+		t.timeout(30000);
 
-		beforeAll(
-			async () => {
-				pathExistsMock.mockResolvedValue(true);
-				readFileMock.mockImplementation((path: string) => {
-					if (path.endsWith("sensorTypes.json"))
-						return Promise.resolve(
-							JSON.stringify(dummySensorTypes),
-						);
-					if (path.endsWith("scales.json"))
-						return Promise.resolve(JSON.stringify(dummyScales));
-				});
+		readFileStub.reset();
+		pathExistsStub.reset();
 
-				configManager = new ConfigManager();
-				await configManager.loadNamedScales();
-				await configManager.loadSensorTypes();
-			},
-			// Loading configuration may take a while on CI
-			30000,
+		pathExistsStub.resolves(true);
+		readFileStub.callsFake(
+			((path: string) => {
+				if (path.endsWith("sensorTypes.json")) {
+					return Promise.resolve(JSON.stringify(dummySensorTypes));
+				}
+				if (path.endsWith("scales.json")) {
+					return Promise.resolve(JSON.stringify(dummyScales));
+				}
+			}) as any,
 		);
 
-		beforeEach(() => {
-			readFileMock.mockClear();
-			pathExistsMock.mockClear();
-		});
+		const configManager = new ConfigManager();
+		await configManager.loadNamedScales();
+		await configManager.loadSensorTypes();
+		return configManager;
+	}
 
-		it("returns the sensor scale definition if it is defined", async () => {
+	test.serial(
+		"lookupSensorScale() returns the sensor scale definition if it is defined",
+		async (t) => {
+			const configManager = await prepareTest(t);
 			const test1 = configManager.lookupSensorScale(0x0a, 0x00);
-			expect(test1).toMatchObject(
-				dummySensorTypes["0x0a"].scales["0x00"],
-			);
+			t.like(test1, dummySensorTypes["0x0a"].scales["0x00"]);
 			const test2 = configManager.lookupSensorScale(0x0a, 0x01);
-			expect(test2).toMatchObject(
-				dummySensorTypes["0x0a"].scales["0x01"],
-			);
-		});
+			t.like(test2, dummySensorTypes["0x0a"].scales["0x01"]);
+		},
+	);
 
-		it("returns a falllback scale definition if the requested one is not defined", async () => {
+	test.serial(
+		"lookupSensorScale() returns a falllback scale definition if the requested one is not defined",
+		async (t) => {
+			const configManager = await prepareTest(t);
 			// existing type, missing scale
 			const test1 = configManager.lookupSensorScale(0x0a, 0xff);
-			expect(test1).toMatchObject({
+			t.like(test1, {
 				label: "Unknown",
 			});
 			// missing type
 			const test2 = configManager.lookupSensorScale(0xff, 0xff);
-			expect(test2).toMatchObject({
+			t.like(test2, {
 				label: "Unknown",
 			});
-		});
+		},
+	);
 
-		it("includes named scales in its lookup", async () => {
+	test.serial(
+		"lookupSensorScale() includes named scales in its lookup",
+		async (t) => {
+			const configManager = await prepareTest(t);
 			const test1 = configManager.lookupSensorScale(0x0b, 0x00);
-			expect(test1).toMatchObject(dummyScales.temperature["0x00"]);
+			t.like(test1, dummyScales.temperature["0x00"]);
 			const test2 = configManager.lookupSensorScale(0x0b, 0x01);
-			expect(test2).toMatchObject(dummyScales.temperature["0x01"]);
-		});
-	});
-});
+			t.like(test2, dummyScales.temperature["0x01"]);
+		},
+	);
+}

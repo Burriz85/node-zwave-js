@@ -5,22 +5,10 @@
 			"cache": false
 		},
 
-		"prebuild": {
-			// Prebuild tasks run before everything else
-			"dependsOn": ["^prebuild"]
-		},
-		"@zwave-js/maintenance#prebuild": {
-			// ... but the maintenance prebuild task has dependencies
-			"dependsOn": ["^build"]
-		},
-
 		"codegen": {
-			// Code generation for packages requires the packages' dependencies to be built
-			// and runs after the own prebuild
-			"dependsOn": ["^build", "prebuild"]
+			// Dummy task to enable running all codegen tasks
 		},
 		"@zwave-js/cc#codegen": {
-			"dependsOn": ["^build", "prebuild"],
 			"outputs": [
 				"src/cc/index.ts",
 				"src/lib/API.ts",
@@ -28,36 +16,31 @@
 			]
 		},
 		"@zwave-js/config#codegen": {
-			"dependsOn": ["^build", "prebuild"],
 			"outputs": ["src/LogicParser.ts"]
 		},
 
-		"build": {
-			"dependsOn": ["^build", "prebuild", "codegen"],
-			// TODO: Figure out how to exclude test files from inputs
-			// :!:**/*.test.ts doesn't work
-			"inputs": [":!:**/*.test.ts", "src/**"],
-			"outputs": ["build/**", "*.tsbuildinfo"]
+		// We just define a single build script, as it turns out that
+		// TypeScript is just better at caching TS builds than Turbo
+		"//#build:turbo": {
+			"inputs": [
+				// Pick up changes to the build script
+				"maintenance/build.ts",
+				// ...and configuration
+				"packages/*/package.json",
+				"packages/*/tsconfig.json",
+				"packages/*/tsconfig.build.json",
+				// All source files are input
+				"packages/*/src/**",
+				// TODO: Figure out how to exclude test files from inputs
+				// :!:**/*.test.ts doesn't work
+				":!:**/*.test.ts"
+			],
+			"outputs": ["packages/*/build/**", "packages/*/*.tsbuildinfo"]
 		},
 
-		"lint": {
-			"dependsOn": [],
-			"inputs": [
-				// https://github.com/vercel/turborepo/issues/1407
-				":!:build/",
-				"**/*.{ts,json}",
-				// The style based linting tasks depend on the corresponding configuration in the repo root
-				"../../.eslintrc.js",
-				"../../.eslintignore",
-				"../../.prettierrc.js",
-				"../../.prettierignore",
-				"../../tsconfig.eslint.json"
-			],
-			"outputs": []
-		},
 		// Specific linting tasks: ESLint
 		"lint:ts": {
-			"dependsOn": [],
+			"dependsOn": ["//#build:turbo"],
 			"inputs": [
 				// https://github.com/vercel/turborepo/issues/1407
 				":!:build/",
@@ -65,18 +48,11 @@
 				// The style based linting tasks depend on the corresponding configuration in the repo root
 				"../../.eslintrc.js",
 				"../../.eslintignore",
-				"../../.prettierrc.js",
-				"../../.prettierignore",
 				"../../tsconfig.eslint.json"
-			],
-			"outputs": []
+			]
 		},
 		"lint:ts:fix": {
-			"dependsOn": []
-		},
-		// Specific linting tasks: Prettier
-		"lint:prettier": {
-			"dependsOn": [],
+			"dependsOn": ["//#build:turbo"],
 			"inputs": [
 				// https://github.com/vercel/turborepo/issues/1407
 				":!:build/",
@@ -84,40 +60,30 @@
 				// The style based linting tasks depend on the corresponding configuration in the repo root
 				"../../.eslintrc.js",
 				"../../.eslintignore",
-				"../../.prettierrc.js",
-				"../../.prettierignore",
 				"../../tsconfig.eslint.json"
 			],
-			"outputs": []
+			"outputs": ["**/*.{ts,json}"]
 		},
-		"lint:prettier:fix": {
-			"dependsOn": []
-		},
+
 		"lint:zwave": {
-			"dependsOn": ["build"],
-			"outputs": []
+			// Dummy task to enable running all lint:zwave tasks
+			"dependsOn": ["//#build:turbo"]
+		},
+		"@zwave-js/config#lint:zwave": {
+			"inputs": ["**/*.ts", "config/**/*.json"]
 		},
 
 		"extract-api": {
-			"dependsOn": ["build"],
-			"outputs": ["api.md"]
+			"dependsOn": ["//#build:turbo"],
+			"inputs": ["src/**/*.ts", "build/**"],
+			"cache": false
+			// "outputs": [".tmp/api.md", "api.md"]
 		},
 
 		"test:ts": {
-			"dependsOn": ["^build"],
-			"inputs": ["src/**/*.ts"],
-			"outputs": [] // TODO: consider snapshot files
-		},
-
-		// For now, run tests in the root:
-		"//#test:ts": {
-			"dependsOn": ["zwave-js#build"],
-			"inputs": [
-				"jest.config.js",
-				"test/jest.*.{js,ts}",
-				"packages/*/src/**/*.ts"
-			],
-			"outputs": []
+			"dependsOn": ["//#build:turbo"],
+			"inputs": ["src/**/*.ts", "ava.config.cjs", "../../ava.config.cjs"]
+			// TODO: consider snapshot files
 		}
 	},
 	"globalDependencies": [

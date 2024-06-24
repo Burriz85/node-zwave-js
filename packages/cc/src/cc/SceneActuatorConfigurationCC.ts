@@ -1,34 +1,35 @@
 import {
 	CommandClasses,
 	Duration,
-	getCCName,
-	Maybe,
-	MessageOrCCLogEntry,
-	SupervisionResult,
-	validatePayload,
+	type MaybeNotKnown,
+	type MessageOrCCLogEntry,
+	type MessageRecord,
+	type SupervisionResult,
 	ValueMetadata,
 	ZWaveError,
 	ZWaveErrorCodes,
+	getCCName,
+	validatePayload,
 } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { pick } from "@zwave-js/shared/safe";
 import { validateArgs } from "@zwave-js/transformers";
 import {
 	CCAPI,
-	PollValueImplementation,
 	POLL_VALUE,
-	SetValueImplementation,
+	type PollValueImplementation,
 	SET_VALUE,
+	type SetValueImplementation,
 	throwMissingPropertyKey,
 	throwUnsupportedProperty,
 	throwUnsupportedPropertyKey,
 	throwWrongValueType,
 } from "../lib/API";
 import {
-	CommandClass,
-	gotDeserializationOptions,
 	type CCCommandOptions,
+	CommandClass,
 	type CommandClassDeserializationOptions,
+	gotDeserializationOptions,
 } from "../lib/CommandClass";
 import {
 	API,
@@ -50,12 +51,11 @@ export const SceneActuatorConfigurationCCValues = Object.freeze({
 			(sceneId: number) => sceneId,
 			({ property, propertyKey }) =>
 				property === "level" && typeof propertyKey === "number",
-			(sceneId: number) =>
-				({
-					...ValueMetadata.UInt8,
-					label: `Level (${sceneId})`,
-					valueChangeOptions: ["transitionDuration"],
-				} as const),
+			(sceneId: number) => ({
+				...ValueMetadata.UInt8,
+				label: `Level (${sceneId})`,
+				valueChangeOptions: ["transitionDuration"],
+			} as const),
 		),
 
 		...V.dynamicPropertyAndKeyWithName(
@@ -63,13 +63,12 @@ export const SceneActuatorConfigurationCCValues = Object.freeze({
 			"dimmingDuration",
 			(sceneId: number) => sceneId,
 			({ property, propertyKey }) =>
-				property === "dimmingDuration" &&
-				typeof propertyKey === "number",
-			(sceneId: number) =>
-				({
-					...ValueMetadata.Duration,
-					label: `Dimming duration (${sceneId})`,
-				} as const),
+				property === "dimmingDuration"
+				&& typeof propertyKey === "number",
+			(sceneId: number) => ({
+				...ValueMetadata.Duration,
+				label: `Dimming duration (${sceneId})`,
+			} as const),
 		),
 	}),
 });
@@ -78,7 +77,7 @@ export const SceneActuatorConfigurationCCValues = Object.freeze({
 export class SceneActuatorConfigurationCCAPI extends CCAPI {
 	public supportsCommand(
 		cmd: SceneActuatorConfigurationCommand,
-	): Maybe<boolean> {
+	): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case SceneActuatorConfigurationCommand.Get:
 				return this.isSinglecast();
@@ -88,98 +87,107 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 		return super.supportsCommand(cmd);
 	}
 
-	protected [SET_VALUE]: SetValueImplementation = async (
-		{ property, propertyKey },
-		value,
-		options,
-	) => {
-		if (propertyKey == undefined) {
-			throwMissingPropertyKey(this.ccId, property);
-		} else if (typeof propertyKey !== "number") {
-			throwUnsupportedPropertyKey(this.ccId, property, propertyKey);
-		}
-		if (property === "level") {
-			if (typeof value !== "number") {
-				throwWrongValueType(
-					this.ccId,
-					property,
-					"number",
-					typeof value,
-				);
+	protected override get [SET_VALUE](): SetValueImplementation {
+		return async function(
+			this: SceneActuatorConfigurationCCAPI,
+			{ property, propertyKey },
+			value,
+			options,
+		) {
+			if (propertyKey == undefined) {
+				throwMissingPropertyKey(this.ccId, property);
+			} else if (typeof propertyKey !== "number") {
+				throwUnsupportedPropertyKey(this.ccId, property, propertyKey);
 			}
+			if (property === "level") {
+				if (typeof value !== "number") {
+					throwWrongValueType(
+						this.ccId,
+						property,
+						"number",
+						typeof value,
+					);
+				}
 
-			// We need to set the dimming duration along with the level.
-			// Dimming duration is chosen with the following precedence:
-			// 1. options.transitionDuration
-			// 2. current stored value
-			// 3. default
-			const dimmingDuration =
-				Duration.from(options?.transitionDuration) ??
-				this.tryGetValueDB()?.getValue<Duration>(
-					SceneActuatorConfigurationCCValues.dimmingDuration(
+				// We need to set the dimming duration along with the level.
+				// Dimming duration is chosen with the following precedence:
+				// 1. options.transitionDuration
+				// 2. current stored value
+				// 3. default
+				const dimmingDuration =
+					Duration.from(options?.transitionDuration)
+						?? this.tryGetValueDB()?.getValue<Duration>(
+							SceneActuatorConfigurationCCValues.dimmingDuration(
+								propertyKey,
+							).endpoint(this.endpoint.index),
+						);
+				return this.set(propertyKey, dimmingDuration, value);
+			} else if (property === "dimmingDuration") {
+				if (typeof value !== "string" && !(value instanceof Duration)) {
+					throwWrongValueType(
+						this.ccId,
+						property,
+						"duration",
+						typeof value,
+					);
+				}
+
+				const dimmingDuration = Duration.from(value);
+				if (dimmingDuration == undefined) {
+					throw new ZWaveError(
+						`${
+							getCCName(
+								this.ccId,
+							)
+						}: "${property}" could not be set. ${
+							JSON.stringify(
+								value,
+							)
+						} is not a valid duration.`,
+						ZWaveErrorCodes.Argument_Invalid,
+					);
+				}
+
+				// Must set the level along with the dimmingDuration,
+				// Use saved value, if it's defined. Otherwise the default
+				// will be used.
+				const level = this.tryGetValueDB()?.getValue<number>(
+					SceneActuatorConfigurationCCValues.level(
 						propertyKey,
 					).endpoint(this.endpoint.index),
 				);
-			return this.set(propertyKey, dimmingDuration, value);
-		} else if (property === "dimmingDuration") {
-			if (typeof value !== "string" && !(value instanceof Duration)) {
-				throwWrongValueType(
-					this.ccId,
-					property,
-					"duration",
-					typeof value,
-				);
-			}
 
-			const dimmingDuration = Duration.from(value);
-			if (dimmingDuration == undefined) {
-				throw new ZWaveError(
-					`${getCCName(
-						this.ccId,
-					)}: "${property}" could not be set. ${JSON.stringify(
-						value,
-					)} is not a valid duration.`,
-					ZWaveErrorCodes.Argument_Invalid,
-				);
-			}
-
-			// Must set the level along with the dimmingDuration,
-			// Use saved value, if it's defined. Otherwise the default
-			// will be used.
-			const level = this.tryGetValueDB()?.getValue<number>(
-				SceneActuatorConfigurationCCValues.level(propertyKey).endpoint(
-					this.endpoint.index,
-				),
-			);
-
-			return this.set(propertyKey, dimmingDuration, level);
-		} else {
-			throwUnsupportedProperty(this.ccId, property);
-		}
-	};
-
-	protected [POLL_VALUE]: PollValueImplementation = async ({
-		property,
-		propertyKey,
-	}): Promise<unknown> => {
-		switch (property) {
-			case "level":
-			case "dimmingDuration": {
-				if (propertyKey == undefined) {
-					throwMissingPropertyKey(this.ccId, property);
-				} else if (typeof propertyKey !== "number") {
-					throwUnsupportedPropertyKey(
-						this.ccId,
-						property,
-						propertyKey,
-					);
-				}
-				return (await this.get(propertyKey))?.[property];
-			}
-			default:
+				return this.set(propertyKey, dimmingDuration, level);
+			} else {
 				throwUnsupportedProperty(this.ccId, property);
-		}
-	};
+			}
+		};
+	}
+
+	protected get [POLL_VALUE](): PollValueImplementation {
+		return async function(
+			this: SceneActuatorConfigurationCCAPI,
+			{ property, propertyKey },
+		) {
+			switch (property) {
+				case "level":
+				case "dimmingDuration": {
+					if (propertyKey == undefined) {
+						throwMissingPropertyKey(this.ccId, property);
+					} else if (typeof propertyKey !== "number") {
+						throwUnsupportedPropertyKey(
+							this.ccId,
+							property,
+							propertyKey,
+						);
+					}
+					return (await this.get(propertyKey))?.[property];
+				}
+				default:
+					throwUnsupportedProperty(this.ccId, property);
+			}
+		};
+	}
 
 	@validateArgs()
 	public async set(
@@ -199,8 +207,8 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 			sceneId,
-			dimmingDuration:
-				Duration.from(dimmingDuration) ?? new Duration(0, "seconds"),
+			dimmingDuration: Duration.from(dimmingDuration)
+				?? new Duration(0, "seconds"),
 			level,
 		});
 
@@ -208,11 +216,12 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 	}
 
 	public async getActive(): Promise<
-		| Pick<
+		MaybeNotKnown<
+			Pick<
 				SceneActuatorConfigurationCCReport,
 				"sceneId" | "level" | "dimmingDuration"
-		  >
-		| undefined
+			>
+		>
 	> {
 		this.assertSupportsCommand(
 			SceneActuatorConfigurationCommand,
@@ -224,11 +233,12 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 			endpoint: this.endpoint.index,
 			sceneId: 0,
 		});
-		const response =
-			await this.applHost.sendCommand<SceneActuatorConfigurationCCReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			SceneActuatorConfigurationCCReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 
 		if (response) {
 			return pick(response, ["sceneId", "level", "dimmingDuration"]);
@@ -239,8 +249,12 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 	public async get(
 		sceneId: number,
 	): Promise<
-		| Pick<SceneActuatorConfigurationCCReport, "level" | "dimmingDuration">
-		| undefined
+		MaybeNotKnown<
+			Pick<
+				SceneActuatorConfigurationCCReport,
+				"level" | "dimmingDuration"
+			>
+		>
 	> {
 		this.assertSupportsCommand(
 			SceneActuatorConfigurationCommand,
@@ -259,11 +273,12 @@ export class SceneActuatorConfigurationCCAPI extends CCAPI {
 			endpoint: this.endpoint.index,
 			sceneId: sceneId,
 		});
-		const response =
-			await this.applHost.sendCommand<SceneActuatorConfigurationCCReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			SceneActuatorConfigurationCCReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 
 		if (response) {
 			return pick(response, ["level", "dimmingDuration"]);
@@ -288,12 +303,13 @@ export class SceneActuatorConfigurationCC extends CommandClass {
 
 		// Create Metadata for all scenes
 		for (let sceneId = 1; sceneId <= 255; sceneId++) {
-			const levelValue =
-				SceneActuatorConfigurationCCValues.level(sceneId);
+			const levelValue = SceneActuatorConfigurationCCValues.level(
+				sceneId,
+			);
 			this.ensureMetadata(applHost, levelValue);
 
-			const dimmingDurationValue =
-				SceneActuatorConfigurationCCValues.dimmingDuration(sceneId);
+			const dimmingDurationValue = SceneActuatorConfigurationCCValues
+				.dimmingDuration(sceneId);
 			this.ensureMetadata(applHost, dimmingDurationValue);
 		}
 
@@ -321,7 +337,10 @@ export class SceneActuatorConfigurationCC extends CommandClass {
 	// }
 }
 
-interface SceneActuatorConfigurationCCSetOptions extends CCCommandOptions {
+// @publicAPI
+export interface SceneActuatorConfigurationCCSetOptions
+	extends CCCommandOptions
+{
 	sceneId: number;
 	dimmingDuration: Duration;
 	level?: number;
@@ -329,7 +348,9 @@ interface SceneActuatorConfigurationCCSetOptions extends CCCommandOptions {
 
 @CCCommand(SceneActuatorConfigurationCommand.Set)
 @useSupervision()
-export class SceneActuatorConfigurationCCSet extends SceneActuatorConfigurationCC {
+export class SceneActuatorConfigurationCCSet
+	extends SceneActuatorConfigurationCC
+{
 	public constructor(
 		host: ZWaveHost,
 		options:
@@ -371,19 +392,25 @@ export class SceneActuatorConfigurationCCSet extends SceneActuatorConfigurationC
 	}
 
 	public toLogEntry(applHost: ZWaveApplicationHost): MessageOrCCLogEntry {
+		const message: MessageRecord = {
+			sceneId: this.sceneId,
+			dimmingDuration: this.dimmingDuration.toString(),
+		};
+		if (this.level != undefined) {
+			message.level = this.level;
+		}
+
 		return {
 			...super.toLogEntry(applHost),
-			message: {
-				sceneId: this.sceneId,
-				level: this.level,
-				dimmingDuration: this.dimmingDuration?.toString(),
-			},
+			message,
 		};
 	}
 }
 
 @CCCommand(SceneActuatorConfigurationCommand.Report)
-export class SceneActuatorConfigurationCCReport extends SceneActuatorConfigurationCC {
+export class SceneActuatorConfigurationCCReport
+	extends SceneActuatorConfigurationCC
+{
 	public constructor(
 		host: ZWaveHost,
 		options: CommandClassDeserializationOptions,
@@ -394,9 +421,8 @@ export class SceneActuatorConfigurationCCReport extends SceneActuatorConfigurati
 
 		if (this.sceneId !== 0) {
 			this.level = this.payload[1];
-			this.dimmingDuration =
-				Duration.parseReport(this.payload[2]) ??
-				new Duration(0, "unknown");
+			this.dimmingDuration = Duration.parseReport(this.payload[2])
+				?? Duration.unknown();
 		}
 	}
 
@@ -409,9 +435,9 @@ export class SceneActuatorConfigurationCCReport extends SceneActuatorConfigurati
 
 		// Do not persist values for an inactive scene
 		if (
-			this.sceneId === 0 ||
-			this.level == undefined ||
-			this.dimmingDuration == undefined
+			this.sceneId === 0
+			|| this.level == undefined
+			|| this.dimmingDuration == undefined
 		) {
 			return false;
 		}
@@ -421,8 +447,8 @@ export class SceneActuatorConfigurationCCReport extends SceneActuatorConfigurati
 		);
 		this.ensureMetadata(applHost, levelValue);
 
-		const dimmingDurationValue =
-			SceneActuatorConfigurationCCValues.dimmingDuration(this.sceneId);
+		const dimmingDurationValue = SceneActuatorConfigurationCCValues
+			.dimmingDuration(this.sceneId);
 		this.ensureMetadata(applHost, dimmingDurationValue);
 
 		this.setValue(applHost, levelValue, this.level);
@@ -432,13 +458,19 @@ export class SceneActuatorConfigurationCCReport extends SceneActuatorConfigurati
 	}
 
 	public toLogEntry(applHost: ZWaveApplicationHost): MessageOrCCLogEntry {
+		const message: MessageRecord = {
+			sceneId: this.sceneId,
+		};
+		if (this.dimmingDuration != undefined) {
+			message.dimmingDuration = this.dimmingDuration.toString();
+		}
+		if (this.level != undefined) {
+			message.level = this.level;
+		}
+
 		return {
 			...super.toLogEntry(applHost),
-			message: {
-				sceneId: this.sceneId,
-				level: this.level,
-				dimmingDuration: this.dimmingDuration?.toString(),
-			},
+			message,
 		};
 	}
 }
@@ -452,7 +484,10 @@ function testResponseForSceneActuatorConfigurationGet(
 	return sent.sceneId === 0 || received.sceneId === sent.sceneId;
 }
 
-interface SceneActuatorConfigurationCCGetOptions extends CCCommandOptions {
+// @publicAPI
+export interface SceneActuatorConfigurationCCGetOptions
+	extends CCCommandOptions
+{
 	sceneId: number;
 }
 
@@ -461,7 +496,9 @@ interface SceneActuatorConfigurationCCGetOptions extends CCCommandOptions {
 	SceneActuatorConfigurationCCReport,
 	testResponseForSceneActuatorConfigurationGet,
 )
-export class SceneActuatorConfigurationCCGet extends SceneActuatorConfigurationCC {
+export class SceneActuatorConfigurationCCGet
+	extends SceneActuatorConfigurationCC
+{
 	public constructor(
 		host: ZWaveHost,
 		options:

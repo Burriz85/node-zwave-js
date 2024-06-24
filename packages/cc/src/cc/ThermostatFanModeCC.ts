@@ -1,35 +1,35 @@
 import {
 	CommandClasses,
-	enumValuesToMetadataStates,
-	Maybe,
-	MessageOrCCLogEntry,
+	type MaybeNotKnown,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	MessageRecord,
-	parseBitMask,
-	supervisedCommandSucceeded,
-	SupervisionResult,
-	validatePayload,
+	type MessageRecord,
+	type SupervisionResult,
 	ValueMetadata,
 	ZWaveError,
 	ZWaveErrorCodes,
+	enumValuesToMetadataStates,
+	parseBitMask,
+	supervisedCommandSucceeded,
+	validatePayload,
 } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { getEnumMemberName, pick } from "@zwave-js/shared/safe";
 import { validateArgs } from "@zwave-js/transformers";
 import {
 	CCAPI,
-	PollValueImplementation,
 	POLL_VALUE,
-	SetValueImplementation,
+	type PollValueImplementation,
 	SET_VALUE,
+	type SetValueImplementation,
 	throwUnsupportedProperty,
 	throwWrongValueType,
 } from "../lib/API";
 import {
-	CommandClass,
-	gotDeserializationOptions,
 	type CCCommandOptions,
+	CommandClass,
 	type CommandClassDeserializationOptions,
+	gotDeserializationOptions,
 } from "../lib/CommandClass";
 import {
 	API,
@@ -56,11 +56,15 @@ export const ThermostatFanModeCCValues = Object.freeze({
 			{ minVersion: 3 } as const,
 		),
 
-		...V.staticPropertyWithName("fanMode", "mode", {
-			...ValueMetadata.UInt8,
-			states: enumValuesToMetadataStates(ThermostatFanMode),
-			label: "Thermostat fan mode",
-		} as const),
+		...V.staticPropertyWithName(
+			"fanMode",
+			"mode",
+			{
+				...ValueMetadata.UInt8,
+				states: enumValuesToMetadataStates(ThermostatFanMode),
+				label: "Thermostat fan mode",
+			} as const,
+		),
 
 		...V.staticPropertyWithName(
 			"supportedFanModes",
@@ -73,7 +77,9 @@ export const ThermostatFanModeCCValues = Object.freeze({
 
 @API(CommandClasses["Thermostat Fan Mode"])
 export class ThermostatFanModeCCAPI extends CCAPI {
-	public supportsCommand(cmd: ThermostatFanModeCommand): Maybe<boolean> {
+	public supportsCommand(
+		cmd: ThermostatFanModeCommand,
+	): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case ThermostatFanModeCommand.Get:
 			case ThermostatFanModeCommand.SupportedGet:
@@ -84,74 +90,79 @@ export class ThermostatFanModeCCAPI extends CCAPI {
 		return super.supportsCommand(cmd);
 	}
 
-	protected [SET_VALUE]: SetValueImplementation = async (
-		{ property },
-		value,
-	) => {
-		const valueDB = this.getValueDB();
-		let result: SupervisionResult | undefined;
+	protected override get [SET_VALUE](): SetValueImplementation {
+		return async function(
+			this: ThermostatFanModeCCAPI,
+			{ property },
+			value,
+		) {
+			const valueDB = this.getValueDB();
+			let result: SupervisionResult | undefined;
 
-		if (property === "mode") {
-			if (typeof value !== "number") {
-				throwWrongValueType(
-					this.ccId,
-					property,
-					"number",
-					typeof value,
+			if (property === "mode") {
+				if (typeof value !== "number") {
+					throwWrongValueType(
+						this.ccId,
+						property,
+						"number",
+						typeof value,
+					);
+				}
+				// Preserve the value of the "off" flag
+				const off = valueDB.getValue<boolean>(
+					ThermostatFanModeCCValues.turnedOff.endpoint(
+						this.endpoint.index,
+					),
 				);
-			}
-			// Preserve the value of the "off" flag
-			const off = valueDB.getValue<boolean>(
-				ThermostatFanModeCCValues.turnedOff.endpoint(
-					this.endpoint.index,
-				),
-			);
-			result = await this.set(value, off);
-		} else if (property === "off") {
-			if (typeof value !== "boolean") {
-				throwWrongValueType(
-					this.ccId,
-					property,
-					"boolean",
-					typeof value,
+				result = await this.set(value, off);
+			} else if (property === "off") {
+				if (typeof value !== "boolean") {
+					throwWrongValueType(
+						this.ccId,
+						property,
+						"boolean",
+						typeof value,
+					);
+				}
+				const mode = valueDB.getValue<ThermostatFanMode>(
+					ThermostatFanModeCCValues.fanMode.endpoint(
+						this.endpoint.index,
+					),
 				);
-			}
-			const mode = valueDB.getValue<ThermostatFanMode>(
-				ThermostatFanModeCCValues.fanMode.endpoint(this.endpoint.index),
-			);
-			if (mode == undefined) {
-				throw new ZWaveError(
-					`The "off" property cannot be changed before the fan mode is known!`,
-					ZWaveErrorCodes.Argument_Invalid,
-				);
-			}
-			result = await this.set(mode, value);
-		} else {
-			throwUnsupportedProperty(this.ccId, property);
-		}
-
-		// Verify the current value after a delay, unless the command was supervised and successful
-		if (this.isSinglecast() && !supervisedCommandSucceeded(result)) {
-			// TODO: Ideally this would be a short delay, but some thermostats like Remotec ZXT-600
-			// aren't able to handle the GET this quickly.
-			this.schedulePoll({ property }, value);
-		}
-
-		return result;
-	};
-
-	protected [POLL_VALUE]: PollValueImplementation = async ({
-		property,
-	}): Promise<unknown> => {
-		switch (property) {
-			case "mode":
-			case "off":
-				return (await this.get())?.[property];
-
-			default:
+				if (mode == undefined) {
+					throw new ZWaveError(
+						`The "off" property cannot be changed before the fan mode is known!`,
+						ZWaveErrorCodes.Argument_Invalid,
+					);
+				}
+				result = await this.set(mode, value);
+			} else {
 				throwUnsupportedProperty(this.ccId, property);
-		}
-	};
+			}
+
+			// Verify the current value after a delay, unless the command was supervised and successful
+			if (this.isSinglecast() && !supervisedCommandSucceeded(result)) {
+				// TODO: Ideally this would be a short delay, but some thermostats like Remotec ZXT-600
+				// aren't able to handle the GET this quickly.
+				this.schedulePoll({ property }, value);
+			}
+
+			return result;
+		};
+	}
+
+	protected get [POLL_VALUE](): PollValueImplementation {
+		return async function(this: ThermostatFanModeCCAPI, { property }) {
+			switch (property) {
+				case "mode":
+				case "off":
+					return (await this.get())?.[property];
+
+				default:
+					throwUnsupportedProperty(this.ccId, property);
+			}
+		};
+	}
 
 	// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 	public async get() {
@@ -164,11 +175,12 @@ export class ThermostatFanModeCCAPI extends CCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<ThermostatFanModeCCReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			ThermostatFanModeCCReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		if (response) {
 			return pick(response, ["mode", "off"]);
 		}
@@ -194,7 +206,7 @@ export class ThermostatFanModeCCAPI extends CCAPI {
 	}
 
 	public async getSupportedModes(): Promise<
-		readonly ThermostatFanMode[] | undefined
+		MaybeNotKnown<readonly ThermostatFanMode[]>
 	> {
 		this.assertSupportsCommand(
 			ThermostatFanModeCommand,
@@ -205,11 +217,12 @@ export class ThermostatFanModeCCAPI extends CCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<ThermostatFanModeCCSupportedReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			ThermostatFanModeCCSupportedReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		return response?.supportedModes;
 	}
 }
@@ -246,12 +259,14 @@ export class ThermostatFanModeCC extends CommandClass {
 
 		const supportedModes = await api.getSupportedModes();
 		if (supportedModes) {
-			const logMessage = `received supported thermostat fan modes:${supportedModes
-				.map(
-					(mode) =>
-						`\n· ${getEnumMemberName(ThermostatFanMode, mode)}`,
-				)
-				.join("")}`;
+			const logMessage = `received supported thermostat fan modes:${
+				supportedModes
+					.map(
+						(mode) =>
+							`\n· ${getEnumMemberName(ThermostatFanMode, mode)}`,
+					)
+					.join("")
+			}`;
 			applHost.controllerLog.logNode(node.id, {
 				endpoint: this.endpointIndex,
 				message: logMessage,
@@ -291,10 +306,12 @@ export class ThermostatFanModeCC extends CommandClass {
 		});
 		const currentStatus = await api.get();
 		if (currentStatus) {
-			let logMessage = `received current thermostat fan mode: ${getEnumMemberName(
-				ThermostatFanMode,
-				currentStatus.mode,
-			)}`;
+			let logMessage = `received current thermostat fan mode: ${
+				getEnumMemberName(
+					ThermostatFanMode,
+					currentStatus.mode,
+				)
+			}`;
 			if (currentStatus.off != undefined) {
 				logMessage += ` (turned off)`;
 			}
@@ -307,7 +324,8 @@ export class ThermostatFanModeCC extends CommandClass {
 	}
 }
 
-type ThermostatFanModeCCSetOptions = CCCommandOptions & {
+// @publicAPI
+export type ThermostatFanModeCCSetOptions = CCCommandOptions & {
 	mode: ThermostatFanMode;
 	off?: boolean;
 };
@@ -339,8 +357,8 @@ export class ThermostatFanModeCCSet extends ThermostatFanModeCC {
 
 	public serialize(): Buffer {
 		this.payload = Buffer.from([
-			(this.version >= 2 && this.off ? 0b1000_0000 : 0) |
-				(this.mode & 0b1111),
+			(this.off ? 0b1000_0000 : 0)
+			| (this.mode & 0b1111),
 		]);
 		return super.serialize();
 	}

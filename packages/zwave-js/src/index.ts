@@ -1,5 +1,7 @@
 // organize-imports-ignore
 
+/* @forbiddenImports sinon */
+
 // This module is the main entry point. Requiring reflect-metadata here avoids forgetting it
 import "reflect-metadata";
 
@@ -16,3 +18,4 @@ export * from "./Error";
 export * from "./Node";
 export * from "./Utils";
 export * from "./Values";
+export * from "./Zniffer";

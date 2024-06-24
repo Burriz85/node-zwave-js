@@ -1,14 +1,14 @@
 import { cloneDeep } from "@zwave-js/shared/safe";
 import test from "ava";
 import fs from "fs-extra";
-import path from "path";
+import path from "node:path";
 import { jsonToNVM, migrateNVM } from ".";
 import {
+	type NVMJSON,
 	json500To700,
 	json700To500,
 	jsonToNVM500,
 	nvm500ToJSON,
-	NVMJSON,
 	nvmToJSON,
 } from "./convert";
 import type { NVM500JSON } from "./nvm500/NVMParser";
@@ -41,7 +41,7 @@ import type { NVM500JSON } from "./nvm500/NVMParser";
 			);
 			const nvm = jsonToNVM(
 				jsonInput,
-				jsonInput.controller.protocolVersion,
+				jsonInput.controller.applicationVersion,
 			);
 			const jsonOutput = nvmToJSON(nvm);
 			// @ts-expect-error
@@ -162,16 +162,16 @@ import type { NVM500JSON } from "./nvm500/NVMParser";
 			delete expected.meta;
 			if (expected.controller.applicationData) {
 				while (expected.controller.applicationData.startsWith("00")) {
-					expected.controller.applicationData =
-						expected.controller.applicationData.slice(2);
+					expected.controller.applicationData = expected.controller
+						.applicationData.slice(2);
 				}
 				while (expected.controller.applicationData.endsWith("00")) {
-					expected.controller.applicationData =
-						expected.controller.applicationData.slice(0, -2);
+					expected.controller.applicationData = expected.controller
+						.applicationData.slice(0, -2);
 				}
 				if (expected.controller.applicationData.length > 1024) {
-					expected.controller.applicationData =
-						expected.controller.applicationData.slice(0, 1024);
+					expected.controller.applicationData = expected.controller
+						.applicationData.slice(0, 1024);
 				}
 			}
 			t.deepEqual(output, expected);
@@ -183,7 +183,9 @@ test("700 to 700 migration shortcut", async (t) => {
 	const fixturesDir = path.join(__dirname, "../test/fixtures/nvm_700_binary");
 
 	const nvmSource = await fs.readFile(
-		path.join(fixturesDir, "ctrlr_backup_700_7.11.bin"),
+		// cannot use 7.11.bin because it has an invalid combination of protocol
+		// and application version
+		path.join(fixturesDir, "ctrlr_backup_700_7.12.bin"),
 	);
 	const nvmTarget = await fs.readFile(
 		path.join(fixturesDir, "ctrlr_backup_700_7.16_1.bin"),

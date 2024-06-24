@@ -5,11 +5,11 @@ import {
 } from "@zwave-js/cc";
 import { CommandClasses, SupervisionStatus } from "@zwave-js/core";
 import {
-	createMockZWaveRequestFrame,
-	MockZWaveFrameType,
 	type MockNodeBehavior,
+	MockZWaveFrameType,
+	createMockZWaveRequestFrame,
 } from "@zwave-js/testing";
-import path from "path";
+import path from "node:path";
 import { integrationTest } from "../integrationTestSuite";
 
 integrationTest(
@@ -46,8 +46,8 @@ integrationTest(
 			const respondToSupervisionGet: MockNodeBehavior = {
 				async onControllerFrame(controller, self, frame) {
 					if (
-						frame.type === MockZWaveFrameType.Request &&
-						frame.payload instanceof SupervisionCCGet
+						frame.type === MockZWaveFrameType.Request
+						&& frame.payload instanceof SupervisionCCGet
 					) {
 						const cc = new SupervisionCCReport(controller.host, {
 							nodeId: self.id,
@@ -68,7 +68,7 @@ integrationTest(
 			mockNode.defineBehavior(respondToSupervisionGet);
 		},
 
-		testBody: async (driver, node, _mockController, _mockNode) => {
+		testBody: async (t, driver, node, _mockController, _mockNode) => {
 			const promise = node.setValue(
 				MultilevelSwitchCCValues.targetValue.id,
 				77,
@@ -77,14 +77,14 @@ integrationTest(
 			let currentValue = node.getValue(
 				MultilevelSwitchCCValues.currentValue.id,
 			);
-			expect(currentValue).not.toBe(77);
+			t.not(currentValue, 77);
 
 			await promise;
 
 			currentValue = node.getValue(
 				MultilevelSwitchCCValues.currentValue.id,
 			);
-			expect(currentValue).toBe(77);
+			t.is(currentValue, 77);
 
 			// await node.commandClasses["Multilevel Switch"].startLevelChange({
 			// 	direction: "up",

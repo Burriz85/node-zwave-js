@@ -7,13 +7,13 @@
 ### `get`
 
 ```ts
-async get(options?: MeterCCGetOptions): Promise<{ rateType: RateType; value: number; previousValue: number | undefined; deltaTime: Maybe<number>; type: number; scale: MeterScale; } | undefined>;
+async get(options?: MeterCCGetOptions): Promise<{ rateType: RateType; value: number; previousValue: MaybeNotKnown<number>; deltaTime: MaybeUnknown<number>; type: number; scale: MeterScale; } | undefined>;
 ```
 
 ### `getAll`
 
 ```ts
-async getAll(): Promise<{ value: number; rateType: RateType; previousValue: number | undefined; deltaTime: Maybe<number>; type: number; scale: MeterScale; }[]>;
+async getAll(): Promise<{ rateType: RateType; value: number; previousValue: MaybeNotKnown<number>; deltaTime: MaybeUnknown<number>; type: number; scale: MeterScale; }[]>;
 ```
 
 ### `getSupported`
@@ -42,13 +42,13 @@ async reset(
 }
 ```
 
--   **label:** Reset accumulated values
--   **min. CC version:** 1
--   **readable:** false
--   **writeable:** true
--   **stateful:** true
--   **secret:** false
--   **value type:** `"boolean"`
+- **label:** Reset accumulated values
+- **min. CC version:** 1
+- **readable:** false
+- **writeable:** true
+- **stateful:** true
+- **secret:** false
+- **value type:** `"boolean"`
 
 ### `resetSingle(meterType: number)`
 
@@ -61,13 +61,13 @@ async reset(
 }
 ```
 
--   **label:** `Reset (${string})`
--   **min. CC version:** 1
--   **readable:** false
--   **writeable:** true
--   **stateful:** true
--   **secret:** false
--   **value type:** `"boolean"`
+- **label:** `Reset (${string})`
+- **min. CC version:** 1
+- **readable:** false
+- **writeable:** true
+- **stateful:** true
+- **secret:** false
+- **value type:** `"boolean"`
 
 ### `value(meterType: number, rateType: RateType, scale: number)`
 
@@ -80,9 +80,9 @@ async reset(
 }
 ```
 
--   **min. CC version:** 1
--   **readable:** true
--   **writeable:** false
--   **stateful:** true
--   **secret:** false
--   **value type:** `"number"`
+- **min. CC version:** 1
+- **readable:** true
+- **writeable:** false
+- **stateful:** true
+- **secret:** false
+- **value type:** `"number"`

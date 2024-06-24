@@ -1,31 +1,31 @@
 import {
 	CommandClasses,
+	type MaybeNotKnown,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	SupervisionResult,
-	validatePayload,
+	type SupervisionResult,
 	ValueMetadata,
 	ZWaveError,
 	ZWaveErrorCodes,
-	type Maybe,
-	type MessageOrCCLogEntry,
+	validatePayload,
 } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { validateArgs } from "@zwave-js/transformers";
 import {
 	CCAPI,
-	PhysicalCCAPI,
-	PollValueImplementation,
 	POLL_VALUE,
-	SetValueImplementation,
+	PhysicalCCAPI,
+	type PollValueImplementation,
 	SET_VALUE,
+	type SetValueImplementation,
 	throwUnsupportedProperty,
 	throwWrongValueType,
 } from "../lib/API";
 import {
-	CommandClass,
-	gotDeserializationOptions,
 	type CCCommandOptions,
+	CommandClass,
 	type CommandClassDeserializationOptions,
+	gotDeserializationOptions,
 } from "../lib/CommandClass";
 import {
 	API,
@@ -68,7 +68,9 @@ function isASCII(str: string): boolean {
 
 @API(CommandClasses["Node Naming and Location"])
 export class NodeNamingAndLocationCCAPI extends PhysicalCCAPI {
-	public supportsCommand(cmd: NodeNamingAndLocationCommand): Maybe<boolean> {
+	public supportsCommand(
+		cmd: NodeNamingAndLocationCommand,
+	): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case NodeNamingAndLocationCommand.NameGet:
 			case NodeNamingAndLocationCommand.NameSet:
@@ -79,41 +81,49 @@ export class NodeNamingAndLocationCCAPI extends PhysicalCCAPI {
 		return super.supportsCommand(cmd);
 	}
 
-	protected [SET_VALUE]: SetValueImplementation = async (
-		{ property },
-		value,
-	) => {
-		if (property !== "name" && property !== "location") {
-			throwUnsupportedProperty(this.ccId, property);
-		}
-		if (typeof value !== "string") {
-			throwWrongValueType(this.ccId, property, "string", typeof value);
-		}
-
-		switch (property) {
-			case "name":
-				return this.setName(value);
-			case "location":
-				return this.setLocation(value);
-		}
-
-		return undefined;
-	};
-
-	protected [POLL_VALUE]: PollValueImplementation = async ({
-		property,
-	}): Promise<unknown> => {
-		switch (property) {
-			case "name":
-				return this.getName();
-			case "location":
-				return this.getLocation();
-			default:
+	protected override get [SET_VALUE](): SetValueImplementation {
+		return async function(
+			this: NodeNamingAndLocationCCAPI,
+			{ property },
+			value,
+		) {
+			if (property !== "name" && property !== "location") {
 				throwUnsupportedProperty(this.ccId, property);
-		}
-	};
+			}
+			if (typeof value !== "string") {
+				throwWrongValueType(
+					this.ccId,
+					property,
+					"string",
+					typeof value,
+				);
+			}
 
-	public async getName(): Promise<string | undefined> {
+			switch (property) {
+				case "name":
+					return this.setName(value);
+				case "location":
+					return this.setLocation(value);
+			}
+
+			return undefined;
+		};
+	}
+
+	protected override get [POLL_VALUE](): PollValueImplementation {
+		return async function(this: NodeNamingAndLocationCCAPI, { property }) {
+			switch (property) {
+				case "name":
+					return this.getName();
+				case "location":
+					return this.getLocation();
+				default:
+					throwUnsupportedProperty(this.ccId, property);
+			}
+		};
+	}
+
+	public async getName(): Promise<MaybeNotKnown<string>> {
 		this.assertSupportsCommand(
 			NodeNamingAndLocationCommand,
 			NodeNamingAndLocationCommand.NameGet,
@@ -123,11 +133,12 @@ export class NodeNamingAndLocationCCAPI extends PhysicalCCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<NodeNamingAndLocationCCNameReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			NodeNamingAndLocationCCNameReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		return response?.name;
 	}
 
@@ -146,7 +157,7 @@ export class NodeNamingAndLocationCCAPI extends PhysicalCCAPI {
 		return this.applHost.sendCommand(cc, this.commandOptions);
 	}
 
-	public async getLocation(): Promise<string | undefined> {
+	public async getLocation(): Promise<MaybeNotKnown<string>> {
 		this.assertSupportsCommand(
 			NodeNamingAndLocationCommand,
 			NodeNamingAndLocationCommand.LocationGet,
@@ -156,11 +167,12 @@ export class NodeNamingAndLocationCCAPI extends PhysicalCCAPI {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<NodeNamingAndLocationCCLocationReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			NodeNamingAndLocationCCLocationReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		return response?.location;
 	}
 
@@ -245,7 +257,10 @@ export class NodeNamingAndLocationCC extends CommandClass {
 	}
 }
 
-interface NodeNamingAndLocationCCNameSetOptions extends CCCommandOptions {
+// @publicAPI
+export interface NodeNamingAndLocationCCNameSetOptions
+	extends CCCommandOptions
+{
 	name: string;
 }
 
@@ -309,7 +324,7 @@ export class NodeNamingAndLocationCCNameReport extends NodeNamingAndLocationCC {
 	) {
 		super(host, options);
 		const encoding = this.payload[0] === 2 ? "utf16le" : "ascii";
-		let nameBuffer = this.payload.slice(1);
+		let nameBuffer = this.payload.subarray(1);
 		if (encoding === "utf16le") {
 			validatePayload(nameBuffer.length % 2 === 0);
 			// Z-Wave expects UTF16 BE
@@ -333,13 +348,18 @@ export class NodeNamingAndLocationCCNameReport extends NodeNamingAndLocationCC {
 @expectedCCResponse(NodeNamingAndLocationCCNameReport)
 export class NodeNamingAndLocationCCNameGet extends NodeNamingAndLocationCC {}
 
-interface NodeNamingAndLocationCCLocationSetOptions extends CCCommandOptions {
+// @publicAPI
+export interface NodeNamingAndLocationCCLocationSetOptions
+	extends CCCommandOptions
+{
 	location: string;
 }
 
 @CCCommand(NodeNamingAndLocationCommand.LocationSet)
 @useSupervision()
-export class NodeNamingAndLocationCCLocationSet extends NodeNamingAndLocationCC {
+export class NodeNamingAndLocationCCLocationSet
+	extends NodeNamingAndLocationCC
+{
 	public constructor(
 		host: ZWaveHost,
 		options:
@@ -390,14 +410,16 @@ export class NodeNamingAndLocationCCLocationSet extends NodeNamingAndLocationCC 
 }
 
 @CCCommand(NodeNamingAndLocationCommand.LocationReport)
-export class NodeNamingAndLocationCCLocationReport extends NodeNamingAndLocationCC {
+export class NodeNamingAndLocationCCLocationReport
+	extends NodeNamingAndLocationCC
+{
 	public constructor(
 		host: ZWaveHost,
 		options: CommandClassDeserializationOptions | CCCommandOptions,
 	) {
 		super(host, options);
 		const encoding = this.payload[0] === 2 ? "utf16le" : "ascii";
-		let locationBuffer = this.payload.slice(1);
+		let locationBuffer = this.payload.subarray(1);
 		if (encoding === "utf16le") {
 			validatePayload(locationBuffer.length % 2 === 0);
 			// Z-Wave expects UTF16 BE
@@ -419,4 +441,6 @@ export class NodeNamingAndLocationCCLocationReport extends NodeNamingAndLocation
 
 @CCCommand(NodeNamingAndLocationCommand.LocationGet)
 @expectedCCResponse(NodeNamingAndLocationCCLocationReport)
-export class NodeNamingAndLocationCCLocationGet extends NodeNamingAndLocationCC {}
+export class NodeNamingAndLocationCCLocationGet
+	extends NodeNamingAndLocationCC
+{}

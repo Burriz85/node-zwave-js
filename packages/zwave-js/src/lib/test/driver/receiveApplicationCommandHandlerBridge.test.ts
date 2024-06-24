@@ -1,109 +1,123 @@
 import { CommandClasses, SecurityManager } from "@zwave-js/core";
-import { MessageHeaders, MockSerialPort } from "@zwave-js/serial";
+import { MessageHeaders } from "@zwave-js/serial";
+import type { MockSerialPort } from "@zwave-js/serial/mock";
 import type { ThrowingMap } from "@zwave-js/shared";
 import { wait } from "alcalzone-shared/async";
+import ava, { type TestFn } from "ava";
 import type { Driver } from "../../driver/Driver";
 import { ZWaveNode } from "../../node/Node";
 import { createAndStartDriver } from "../utils";
 import { isFunctionSupported_NoBridge } from "./fixtures";
 
-describe("regression tests", () => {
-	let driver: Driver;
-	let serialport: MockSerialPort;
-	process.env.LOGLEVEL = "debug";
+interface TestContext {
+	driver: Driver;
+	serialport: MockSerialPort;
+}
 
-	beforeEach(async () => {
-		({ driver, serialport } = await createAndStartDriver({
-			securityKeys: {
-				S0_Legacy: Buffer.alloc(16, 0),
-			},
-		}));
+const test = ava as TestFn<TestContext>;
 
-		driver["_securityManager"] = new SecurityManager({
-			networkKey: driver.options.securityKeys!.S0_Legacy!,
-			ownNodeId: 1,
-			nonceTimeout: driver.options.timeouts.nonce,
-		});
+test.beforeEach(async (t) => {
+	t.timeout(30000);
 
-		driver["_controller"] = {
-			ownNodeId: 1,
-			isFunctionSupported: isFunctionSupported_NoBridge,
-			nodes: new Map(),
-			incrementStatistics: () => {},
-			removeAllListeners: () => {},
-		} as any;
+	const { driver, serialport } = await createAndStartDriver({
+		securityKeys: {
+			S0_Legacy: Buffer.alloc(16, 0),
+		},
 	});
 
-	afterEach(async () => {
-		await driver.destroy();
-		driver.removeAllListeners();
+	driver["_securityManager"] = new SecurityManager({
+		networkKey: driver.options.securityKeys!.S0_Legacy!,
+		ownNodeId: 1,
+		nonceTimeout: driver.options.timeouts.nonce,
 	});
 
-	it("Node responses in a BridgeApplicationCommandRequest should be understood", async () => {
-		// Repro for #1100
-		const node3 = new ZWaveNode(3, driver);
-		(driver.controller.nodes as ThrowingMap<number, ZWaveNode>).set(
-			3,
-			node3,
-		);
-		// Add event handlers for the nodes
-		for (const node of driver.controller.nodes.values()) {
-			driver["addNodeEventHandlers"](node);
-		}
+	driver["_controller"] = {
+		ownNodeId: 1,
+		isFunctionSupported: isFunctionSupported_NoBridge,
+		nodes: new Map(),
+		incrementStatistics: () => {},
+		removeAllListeners: () => {},
+	} as any;
 
-		node3.addCC(CommandClasses.Security, {
-			isSupported: true,
-			version: 1,
-		});
-		node3.markAsAlive();
+	driver.controller.nodes.getOrThrow = (nodeId: number) => {
+		const node = driver.controller.nodes.get(nodeId);
+		if (!node) throw new Error(`Node ${nodeId} not found`);
+		return node;
+	};
 
-		const ACK = Buffer.from([MessageHeaders.ACK]);
+	t.context = { driver, serialport };
+});
 
-		const getNoncePromise = node3.commandClasses.Security.getNonce();
-		await wait(1);
-		// » [Node 003] [REQ] [SendData]
-		// │ transmit options: 0x25
-		// │ callback id:      1
-		// └─[SecurityCCNonceGet]
-		expect(serialport.lastWrite).toEqual(
-			Buffer.from("0109001303029840250118", "hex"),
-		);
-		await wait(10);
-		serialport.receiveData(ACK);
+test.afterEach.always(async (t) => {
+	const { driver } = t.context;
+	await driver.destroy();
+	driver.removeAllListeners();
+});
 
-		await wait(10);
+process.env.LOGLEVEL = "debug";
 
-		// « [RES] [SendData]
-		//     was sent: true
-		serialport.receiveData(Buffer.from("0104011301e8", "hex"));
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
+test("Node responses in a BridgeApplicationCommandRequest should be understood", async (t) => {
+	const { driver, serialport } = t.context;
 
-		await wait(10);
+	// Repro for #1100
+	const node3 = new ZWaveNode(3, driver);
+	(driver.controller.nodes as ThrowingMap<number, ZWaveNode>).set(3, node3);
+	// Add event handlers for the nodes
+	for (const node of driver.controller.nodes.values()) {
+		driver["addNodeEventHandlers"](node);
+	}
 
-		// « [REQ] [SendData]
-		//     callback id:     1
-		//     transmit status: OK
-		serialport.receiveData(
-			Buffer.from(
-				"011800130100000100c17f7f7f7f000003000000000301000034",
-				"hex",
-			),
-		);
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
+	node3.addCC(CommandClasses.Security, {
+		isSupported: true,
+		version: 1,
+	});
+	node3.markAsAlive();
 
-		await wait(10);
+	const ACK = Buffer.from([MessageHeaders.ACK]);
 
-		// BridgeApplicationCommandRequest
-		serialport.receiveData(
-			Buffer.from("011300a80001030a98803e55e4b714973b9e00c18b", "hex"),
-		);
-		// » [ACK]
-		expect(serialport.lastWrite).toEqual(ACK);
+	const getNoncePromise = node3.commandClasses.Security.getNonce();
+	await wait(1);
+	// » [Node 003] [REQ] [SendData]
+	// │ transmit options: 0x25
+	// │ callback id:      1
+	// └─[SecurityCCNonceGet]
+	t.deepEqual(
+		serialport.lastWrite,
+		Buffer.from("0109001303029840250118", "hex"),
+	);
+	await wait(10);
+	serialport.receiveData(ACK);
 
-		await expect(getNoncePromise).resolves.toEqual(
-			Buffer.from("3e55e4b714973b9e", "hex"),
-		);
-	}, 30000);
+	await wait(10);
+
+	// « [RES] [SendData]
+	//     was sent: true
+	serialport.receiveData(Buffer.from("0104011301e8", "hex"));
+	// » [ACK]
+	t.deepEqual(serialport.lastWrite, ACK);
+
+	await wait(10);
+
+	// « [REQ] [SendData]
+	//     callback id:     1
+	//     transmit status: OK
+	serialport.receiveData(
+		Buffer.from(
+			"011800130100000100c17f7f7f7f000003000000000301000034",
+			"hex",
+		),
+	);
+	// » [ACK]
+	t.deepEqual(serialport.lastWrite, ACK);
+
+	await wait(10);
+
+	// BridgeApplicationCommandRequest
+	serialport.receiveData(
+		Buffer.from("011300a80001030a98803e55e4b714973b9e00c18b", "hex"),
+	);
+	// » [ACK]
+	t.deepEqual(serialport.lastWrite, ACK);
+
+	t.deepEqual(await getNoncePromise, Buffer.from("3e55e4b714973b9e", "hex"));
 });

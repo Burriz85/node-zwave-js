@@ -1,26 +1,26 @@
 import {
 	CommandClasses,
-	DSTInfo,
-	formatDate,
-	getDSTInfo,
-	Maybe,
-	MessageOrCCLogEntry,
+	type DSTInfo,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	SupervisionResult,
-	validatePayload,
+	type SupervisionResult,
 	ZWaveError,
 	ZWaveErrorCodes,
+	formatDate,
+	getDSTInfo,
+	validatePayload,
 } from "@zwave-js/core";
+import { type MaybeNotKnown } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { pick } from "@zwave-js/shared/safe";
 import { validateArgs } from "@zwave-js/transformers";
 import { padStart } from "alcalzone-shared/strings";
 import { CCAPI } from "../lib/API";
 import {
-	CommandClass,
-	gotDeserializationOptions,
 	type CCCommandOptions,
+	CommandClass,
 	type CommandClassDeserializationOptions,
+	gotDeserializationOptions,
 } from "../lib/CommandClass";
 import {
 	API,
@@ -30,15 +30,15 @@ import {
 	implementedVersion,
 	useSupervision,
 } from "../lib/CommandClassDecorators";
-import { encodeTimezone, parseTimezone } from "../lib/serializers";
 import { TimeCommand } from "../lib/_Types";
+import { encodeTimezone, parseTimezone } from "../lib/serializers";
 
 // @noSetValueAPI
 // Only the timezone information can be set and that accepts a non-primitive value
 
 @API(CommandClasses.Time)
 export class TimeCCAPI extends CCAPI {
-	public supportsCommand(cmd: TimeCommand): Maybe<boolean> {
+	public supportsCommand(cmd: TimeCommand): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case TimeCommand.TimeGet:
 			case TimeCommand.TimeReport:
@@ -71,6 +71,7 @@ export class TimeCCAPI extends CCAPI {
 		}
 	}
 
+	@validateArgs()
 	public async reportTime(
 		hour: number,
 		minute: number,
@@ -105,6 +106,7 @@ export class TimeCCAPI extends CCAPI {
 		}
 	}
 
+	@validateArgs()
 	public async reportDate(
 		year: number,
 		month: number,
@@ -139,18 +141,19 @@ export class TimeCCAPI extends CCAPI {
 		return this.applHost.sendCommand(cc, this.commandOptions);
 	}
 
-	public async getTimezone(): Promise<DSTInfo | undefined> {
+	public async getTimezone(): Promise<MaybeNotKnown<DSTInfo>> {
 		this.assertSupportsCommand(TimeCommand, TimeCommand.TimeOffsetGet);
 
 		const cc = new TimeCCTimeOffsetGet(this.applHost, {
 			nodeId: this.endpoint.nodeId,
 			endpoint: this.endpoint.index,
 		});
-		const response =
-			await this.applHost.sendCommand<TimeCCTimeOffsetReport>(
-				cc,
-				this.commandOptions,
-			);
+		const response = await this.applHost.sendCommand<
+			TimeCCTimeOffsetReport
+		>(
+			cc,
+			this.commandOptions,
+		);
 		if (response) {
 			return {
 				standardOffset: response.standardOffset,
@@ -218,14 +221,14 @@ export class TimeCC extends CommandClass {
 	}
 }
 
-interface TimeCCTimeReportOptions extends CCCommandOptions {
+// @publicAPI
+export interface TimeCCTimeReportOptions extends CCCommandOptions {
 	hour: number;
 	minute: number;
 	second: number;
 }
 
 @CCCommand(TimeCommand.TimeReport)
-@useSupervision()
 export class TimeCCTimeReport extends TimeCC {
 	public constructor(
 		host: ZWaveHost,
@@ -264,11 +267,13 @@ export class TimeCCTimeReport extends TimeCC {
 		return {
 			...super.toLogEntry(applHost),
 			message: {
-				time: `${padStart(this.hour.toString(), 2, "0")}:${padStart(
-					this.minute.toString(),
-					2,
-					"0",
-				)}:${padStart(this.second.toString(), 2, "0")}`,
+				time: `${padStart(this.hour.toString(), 2, "0")}:${
+					padStart(
+						this.minute.toString(),
+						2,
+						"0",
+					)
+				}:${padStart(this.second.toString(), 2, "0")}`,
 			},
 		};
 	}
@@ -278,14 +283,14 @@ export class TimeCCTimeReport extends TimeCC {
 @expectedCCResponse(TimeCCTimeReport)
 export class TimeCCTimeGet extends TimeCC {}
 
-interface TimeCCDateReportOptions extends CCCommandOptions {
+// @publicAPI
+export interface TimeCCDateReportOptions extends CCCommandOptions {
 	year: number;
 	month: number;
 	day: number;
 }
 
 @CCCommand(TimeCommand.DateReport)
-@useSupervision()
 export class TimeCCDateReport extends TimeCC {
 	public constructor(
 		host: ZWaveHost,
@@ -324,11 +329,13 @@ export class TimeCCDateReport extends TimeCC {
 		return {
 			...super.toLogEntry(applHost),
 			message: {
-				date: `${padStart(this.year.toString(), 4, "0")}-${padStart(
-					this.month.toString(),
-					2,
-					"0",
-				)}-${padStart(this.day.toString(), 2, "0")}`,
+				date: `${padStart(this.year.toString(), 4, "0")}-${
+					padStart(
+						this.month.toString(),
+						2,
+						"0",
+					)
+				}-${padStart(this.day.toString(), 2, "0")}`,
 			},
 		};
 	}
@@ -338,7 +345,8 @@ export class TimeCCDateReport extends TimeCC {
 @expectedCCResponse(TimeCCDateReport)
 export class TimeCCDateGet extends TimeCC {}
 
-interface TimeCCTimeOffsetSetOptions extends CCCommandOptions {
+// @publicAPI
+export interface TimeCCTimeOffsetSetOptions extends CCCommandOptions {
 	standardOffset: number;
 	dstOffset: number;
 	dstStart: Date;
@@ -405,7 +413,8 @@ export class TimeCCTimeOffsetSet extends TimeCC {
 	}
 }
 
-interface TimeCCTimeOffsetReportOptions extends CCCommandOptions {
+// @publicAPI
+export interface TimeCCTimeOffsetReportOptions extends CCCommandOptions {
 	standardOffset: number;
 	dstOffset: number;
 	dstStart: Date;
@@ -413,7 +422,6 @@ interface TimeCCTimeOffsetReportOptions extends CCCommandOptions {
 }
 
 @CCCommand(TimeCommand.TimeOffsetReport)
-@useSupervision()
 export class TimeCCTimeOffsetReport extends TimeCC {
 	public constructor(
 		host: ZWaveHost,

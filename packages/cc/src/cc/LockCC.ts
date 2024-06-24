@@ -1,32 +1,32 @@
 import {
 	CommandClasses,
-	Maybe,
-	MessageOrCCLogEntry,
+	type MaybeNotKnown,
+	type MessageOrCCLogEntry,
 	MessagePriority,
-	supervisedCommandSucceeded,
-	SupervisionResult,
-	validatePayload,
+	type SupervisionResult,
 	ValueMetadata,
 	ZWaveError,
 	ZWaveErrorCodes,
+	supervisedCommandSucceeded,
+	validatePayload,
 } from "@zwave-js/core/safe";
 import type { ZWaveApplicationHost, ZWaveHost } from "@zwave-js/host/safe";
 import { validateArgs } from "@zwave-js/transformers";
 import {
 	CCAPI,
-	PhysicalCCAPI,
-	PollValueImplementation,
 	POLL_VALUE,
-	SetValueImplementation,
+	PhysicalCCAPI,
+	type PollValueImplementation,
 	SET_VALUE,
+	type SetValueImplementation,
 	throwUnsupportedProperty,
 	throwWrongValueType,
 } from "../lib/API";
 import {
-	CommandClass,
-	gotDeserializationOptions,
 	type CCCommandOptions,
+	CommandClass,
 	type CommandClassDeserializationOptions,
+	gotDeserializationOptions,
 } from "../lib/CommandClass";
 import {
 	API,
@@ -43,17 +43,20 @@ import { LockCommand } from "../lib/_Types";
 
 export const LockCCValues = Object.freeze({
 	...V.defineStaticCCValues(CommandClasses.Lock, {
-		...V.staticProperty("locked", {
-			...ValueMetadata.Boolean,
-			label: "Locked",
-			description: "Whether the lock is locked",
-		} as const),
+		...V.staticProperty(
+			"locked",
+			{
+				...ValueMetadata.Boolean,
+				label: "Locked",
+				description: "Whether the lock is locked",
+			} as const,
+		),
 	}),
 });
 
 @API(CommandClasses.Lock)
 export class LockCCAPI extends PhysicalCCAPI {
-	public supportsCommand(cmd: LockCommand): Maybe<boolean> {
+	public supportsCommand(cmd: LockCommand): MaybeNotKnown<boolean> {
 		switch (cmd) {
 			case LockCommand.Get:
 			case LockCommand.Set:
@@ -62,7 +65,7 @@ export class LockCCAPI extends PhysicalCCAPI {
 		return super.supportsCommand(cmd);
 	}
 
-	public async get(): Promise<boolean | undefined> {
+	public async get(): Promise<MaybeNotKnown<boolean>> {
 		this.assertSupportsCommand(LockCommand, LockCommand.Get);
 
 		const cc = new LockCCGet(this.applHost, {
@@ -92,32 +95,36 @@ export class LockCCAPI extends PhysicalCCAPI {
 		return this.applHost.sendCommand(cc, this.commandOptions);
 	}
 
-	protected [SET_VALUE]: SetValueImplementation = async (
-		{ property },
-		value,
-	) => {
-		if (property !== "locked") {
+	protected override get [SET_VALUE](): SetValueImplementation {
+		return async function(this: LockCCAPI, { property }, value) {
+			if (property !== "locked") {
+				throwUnsupportedProperty(this.ccId, property);
+			}
+			if (typeof value !== "boolean") {
+				throwWrongValueType(
+					this.ccId,
+					property,
+					"boolean",
+					typeof value,
+				);
+			}
+			const result = await this.set(value);
+
+			// Verify the current value after a delay, unless the command was supervised and successful
+			if (!supervisedCommandSucceeded(result)) {
+				this.schedulePoll({ property }, value);
+			}
+
+			return result;
+		};
+	}
+
+	protected get [POLL_VALUE](): PollValueImplementation {
+		return async function(this: LockCCAPI, { property }) {
+			if (property === "locked") return this.get();
 			throwUnsupportedProperty(this.ccId, property);
-		}
-		if (typeof value !== "boolean") {
-			throwWrongValueType(this.ccId, property, "boolean", typeof value);
-		}
-		const result = await this.set(value);
-
-		// Verify the current value after a delay, unless the command was supervised and successful
-		if (!supervisedCommandSucceeded(result)) {
-			this.schedulePoll({ property }, value);
-		}
-
-		return result;
-	};
-
-	protected [POLL_VALUE]: PollValueImplementation = async ({
-		property,
-	}): Promise<unknown> => {
-		if (property === "locked") return this.get();
-		throwUnsupportedProperty(this.ccId, property);
-	};
+		};
+	}
 }
 
 @commandClass(CommandClasses.Lock)
@@ -165,7 +172,8 @@ export class LockCC extends CommandClass {
 	}
 }
 
-interface LockCCSetOptions extends CCCommandOptions {
+// @publicAPI
+export interface LockCCSetOptions extends CCCommandOptions {
 	locked: boolean;
 }
 
